@@ -17,9 +17,8 @@ func (Book) TableName() string {
 
 type Person struct {
 	surrealdb.Model
-	Name   string
-	BookID *surrealdb.RecordID `gorm:"type:record;column:book_id" json:"book_id,omitempty"`
-	Book   *Book               `gorm:"foreignKey:BookID;references:id" json:"book,omitempty"`
+	Name string
+	Book surrealdb.Link[Book] `json:"book,omitempty"`
 }
 
 func TestFetch(t *testing.T) {
@@ -40,7 +39,7 @@ func TestFetch(t *testing.T) {
 	// Note: book.ID.String() returns "book:..." which is what we need.
 	var person Person
 
-	person.BookID = book.ID
+	person.Book.ID = book.ID
 	person.Name = "Reader"
 
 	if err := db.Debug().Create(&person).Error; err != nil {
@@ -65,10 +64,10 @@ func TestFetch(t *testing.T) {
 		t.Fatalf("Failed to query with FETCH: %v", err)
 	}
 
-	if p2.Book == nil {
+	if p2.Book.Data == nil {
 		t.Fatal("Expected p2.Book to be populated")
 	}
-	if p2.Book.Title != "SurrealDB Guide" {
-		t.Errorf("Expected book title 'SurrealDB Guide', got '%s'", p2.Book.Title)
+	if p2.Book.Data.Title != "SurrealDB Guide" {
+		t.Errorf("Expected book title 'SurrealDB Guide', got '%s'", p2.Book.Data.Title)
 	}
 }
