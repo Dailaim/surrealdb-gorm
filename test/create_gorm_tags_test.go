@@ -3,11 +3,11 @@ package surrealdb_test
 import (
 	"testing"
 
-	"github.com/dailaim/surrealdb-gorm"
+	"github.com/dailaim/surrealdb-gorm/models"
 )
 
 type CustomTagModel struct {
-	surrealdb.Model
+	models.Schemaless
 	MyField string `gorm:"column:custom_db_name" json:"myField"`
 }
 

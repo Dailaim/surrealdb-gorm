@@ -1,8 +1,6 @@
 package models
 
 import (
-	"time"
-
 	"github.com/dailaim/surrealdb-gorm/types"
 )
 
@@ -13,8 +11,7 @@ import (
 //	  surrealdb.Model
 //	}
 type Relation struct {
-	ID        *types.RecordID  `gorm:"primaryKey;type:record;<-:create" json:"id,omitempty"`
-
+	ID *types.RecordID `gorm:"primaryKey;type:record;<-:create" json:"id,omitempty"`
 }
 
 func (m *Relation) GetID() *types.RecordID {

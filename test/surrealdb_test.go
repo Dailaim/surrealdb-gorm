@@ -8,11 +8,12 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/dailaim/surrealdb-gorm"
+	"github.com/dailaim/surrealdb-gorm/models"
 	"gorm.io/gorm"
 )
 
 type User struct {
-	surrealdb.Model
+	models.Schemaless
 	Name string `json:"name"`
 	Age  int    `json:"age"`
 }

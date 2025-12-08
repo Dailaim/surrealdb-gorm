@@ -3,17 +3,17 @@ package surrealdb_test
 import (
 	"testing"
 
-	"github.com/dailaim/surrealdb-gorm"
+	"github.com/dailaim/surrealdb-gorm/models"
 	"github.com/dailaim/surrealdb-gorm/types"
 )
 
 type Tag struct {
-	surrealdb.Model
+	models.Schemaless
 	Name string
 }
 
 type Article struct {
-	surrealdb.Model
+	models.Schemaless
 	Title string
 	Tags  types.SliceLink[Tag] `json:"tags,omitempty"`
 }

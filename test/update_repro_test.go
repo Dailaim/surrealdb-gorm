@@ -3,11 +3,11 @@ package surrealdb_test
 import (
 	"testing"
 
-	"github.com/dailaim/surrealdb-gorm"
+	"github.com/dailaim/surrealdb-gorm/models"
 )
 
 type UserUpdate struct {
-	surrealdb.Model
+	models.Schemaless
 	Name string
 	Age  int
 }

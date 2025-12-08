@@ -3,13 +3,13 @@ package surrealdb_test
 import (
 	"testing"
 
-	"github.com/dailaim/surrealdb-gorm"
 	"github.com/dailaim/surrealdb-gorm/clauses"
+	"github.com/dailaim/surrealdb-gorm/models"
 	"github.com/dailaim/surrealdb-gorm/types"
 )
 
 type Book struct {
-	surrealdb.Model
+	models.Schemaless
 	Title string
 }
 
@@ -18,7 +18,7 @@ func (Book) TableName() string {
 }
 
 type Person struct {
-	surrealdb.Model
+	models.Schemaless
 	Name string
 	Book types.Link[Book] `json:"book,omitempty"`
 }
@@ -119,7 +119,7 @@ func TestPreloadFetch(t *testing.T) {
 // ---------------------------------------------------------------------------------------------------------------------
 
 type Node struct {
-	surrealdb.Model
+	models.Schemaless
 	Name string           `gorm:"column:name" json:"aaaa"`
 	Next types.Link[Node] `json:"next,omitempty"`
 }

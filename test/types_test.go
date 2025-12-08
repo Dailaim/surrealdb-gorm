@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dailaim/surrealdb-gorm"
+	"github.com/dailaim/surrealdb-gorm/models"
 	"github.com/dailaim/surrealdb-gorm/types"
 )
 
 // AllTypes struct to verify support for all requested data types
 type AllTypes struct {
-	surrealdb.Model
+	models.Schemaless
 	// Basic Types
 	Bool   bool
 	Int    int
@@ -170,7 +170,7 @@ func TestBytesDirect(t *testing.T) {
 
 	// Define a struct to read back results
 	type BytesStruct struct {
-		surrealdb.Model
+		models.Schemaless
 		Data types.Bytes `gorm:"type:bytes"`
 	}
 
