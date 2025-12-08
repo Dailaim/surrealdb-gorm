@@ -29,6 +29,8 @@ func Open(dsn string) gorm.Dialector {
 	return &Dialector{DSN: dsn}
 }
 
+var REALDBONLYTEST *surrealdb.DB
+
 func (dialector *Dialector) Name() string {
 	return "surrealdb"
 }
@@ -81,6 +83,7 @@ func (dialector *Dialector) Initialize(db *gorm.DB) (err error) {
 
 		dialector.Conn = conn
 		db.ConnPool = dialector
+		REALDBONLYTEST = conn
 	}
 
 	RegisterCallbacks(db)

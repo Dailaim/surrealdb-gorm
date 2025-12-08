@@ -5,7 +5,28 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/surrealdb/surrealdb.go/pkg/models"
 )
+
+type RecordID struct {
+	models.RecordID
+}
+
+func (r *RecordID) StringToRecordID(s string) error {
+	parsed, err := models.ParseRecordID(s)
+	if err != nil {
+		return err
+	}
+	r.RecordID = *parsed
+	return nil
+}
+
+// Value implements driver.Valuer
+
+func (RecordID) GormDataType() string {
+	return "record"
+}
 
 // Duration wraps time.Duration to marshal as SurrealDB duration string (e.g. "1h30m")
 type Duration struct {

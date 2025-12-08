@@ -120,32 +120,22 @@ func CreateCallback(db *gorm.DB) {
 
 		var created *interface{}
 		var err error
+		// fmt.Printf("Dest: %#v\n", db.Statement.Dest)
+		// fmt.Printf("Dest TYPE: %#v\n", reflect.TypeOf(db.Statement.Dest))
 
-		// Force JSON marshaling to generic map to respect custom MarshalJSON
-		var data interface{}
-		b, errMarshal := json.Marshal(db.Statement.Dest)
-		if errMarshal != nil {
-			db.AddError(errMarshal)
-			return
-		}
-		if err := json.Unmarshal(b, &data); err != nil {
-			db.AddError(err)
-			return
-		}
-
-		// Sanitize data: remove 'id' field to prevent "specific record has been specified" error
-		// when using Update/Create with an ID in the URL.
-		if m, ok := data.(map[string]interface{}); ok {
-			delete(m, "id")
-			data = m
-		}
+		// fmt.Printf("\n\n\n\nSchema: %#v\n\n\n\n", db.Statement.Dest)
+		// if reflect.ValueOf(db.Statement.Dest).Kind() == reflect.Ptr {
+		// 	fmt.Printf("\n\n\n\nSchema: %#v\n\n\n\n", reflect.ValueOf(db.Statement.Dest).Elem().Interface())
+		// } else {
+		// 	fmt.Printf("\n\n\n\nSchema: %#v\n\n\n\n", db.Statement.Dest)
+		// }
 
 		if whatRecord != nil {
 			// If ID is specified, treat as Upsert/Update.
 			// surrealdb.Update overwrites the record content, matching GORM Save semantics.
-			created, err = surrealdb.Update[interface{}](db.Statement.Context, dialector.Conn, *whatRecord, data)
+			created, err = surrealdb.Update[interface{}](db.Statement.Context, dialector.Conn, *whatRecord, db.Statement.Dest)
 		} else {
-			created, err = surrealdb.Create[interface{}](db.Statement.Context, dialector.Conn, models.Table(whatTable), data)
+			created, err = surrealdb.Create[interface{}](db.Statement.Context, dialector.Conn, models.Table(whatTable), db.Statement.Dest)
 		}
 
 		if err != nil {

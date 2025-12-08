@@ -2,6 +2,7 @@ package surrealdb
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/surrealdb/surrealdb.go/pkg/models"
@@ -15,10 +16,10 @@ import (
 //	  surrealdb.Model
 //	}
 type Model struct {
-	ID        *models.RecordID `gorm:"primaryKey;type:record;<-:create" json:"id,omitempty"`
-	CreatedAt time.Time        `json:"created_at,omitempty"`
-	UpdatedAt time.Time        `json:"updated_at,omitempty"`
-	DeletedAt DeletedAt        `gorm:"index;softDelete:true" json:"deleted_at,omitempty"`
+	ID        *RecordID `gorm:"primaryKey;type:record;<-:create" json:"id,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	DeletedAt DeletedAt `gorm:"index;softDelete:true" json:"deleted_at,omitempty"`
 }
 
 type DeletedAt struct {
@@ -66,4 +67,38 @@ func (d DeletedAt) MarshalJSON() ([]byte, error) {
 		return []byte("null"), nil
 	}
 	return json.Marshal(d.Time)
+}
+
+func (d *DeletedAt) SurrealString() string {
+	return fmt.Sprintf("<datetime> '%s'", d.Time.String())
+}
+
+func (d *DeletedAt) MarshalCBOR() ([]byte, error) {
+
+	if !d.Valid {
+		customNil := models.CustomNil{}
+		return customNil.MarshalCBOR()
+	}
+
+	customTime := models.CustomDateTime{
+		Time: d.Time,
+	}
+	return customTime.MarshalCBOR()
+}
+
+func (d *DeletedAt) UnmarshalCBOR(data []byte) error {
+	customTime := new(models.CustomDateTime)
+	if err := customTime.UnmarshalCBOR(data); err != nil {
+		return err
+	}
+
+	if customTime.Time.IsZero() {
+		d.Valid = false
+		return nil
+	}
+
+	d.Time = customTime.Time
+	d.Valid = true
+
+	return nil
 }

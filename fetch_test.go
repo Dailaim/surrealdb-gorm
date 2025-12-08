@@ -3,7 +3,7 @@ package surrealdb_test
 import (
 	"testing"
 
-	"github.com/dailaim/2077/pkg/surrealdb"
+	"github.com/dailaim/surrealdb-gorm"
 )
 
 type Book struct {
@@ -17,20 +17,16 @@ func (Book) TableName() string {
 
 type Person struct {
 	surrealdb.Model
-	Name string
-	Book *Book `json:"book,omitempty" gorm:"-"` // populated by FETCH and used for Create (as link)
-}
-
-func (Person) TableName() string {
-	return "person"
+	Name   string
+	BookID *surrealdb.RecordID `gorm:"type:record;column:book_id" json:"book_id,omitempty"`
+	Book   *Book               `gorm:"foreignKey:BookID;references:id" json:"book,omitempty"`
 }
 
 func TestFetch(t *testing.T) {
+	var err error
 	db := setupDB(t)
 
-	// Cleanup
-	db.Exec("DELETE person")
-	db.Exec("DELETE book")
+	db.AutoMigrate(&Book{}, &Person{})
 
 	// Create Book
 	book := Book{Title: "SurrealDB Guide"}
@@ -38,25 +34,17 @@ func TestFetch(t *testing.T) {
 		t.Fatalf("Failed to create book: %v", err)
 	}
 
-	// Create Person linked to Book
-	if book.ID == nil {
-		t.Fatal("Book ID is nil")
-	}
 	// Use raw SQL to create person to ensure we create a proper Record Link
 	// We use type::thing() to cast the string ID to a record link.
 	// This avoids the complexity of GORM/Driver struct marshalling for Record Links for now.
 	// Note: book.ID.String() returns "book:..." which is what we need.
-	if err := db.Exec("CREATE person SET name = 'Reader', book = type::thing($1)", book.ID.String()).Error; err != nil {
-		t.Fatalf("Failed to create person: %v", err)
-	}
-
-	// Retrieve the ID of the created person for the Fetch query
-	// We can't easily get it from execution result here with just Exec (generic).
-	// So let's query it back or use a fixed ID?
-	// Better: Use fixed ID or query it.
 	var person Person
-	if err := db.First(&person, "name = ?", "Reader").Error; err != nil {
-		t.Fatalf("Failed to find created person: %v", err)
+
+	person.BookID = book.ID
+	person.Name = "Reader"
+
+	if err := db.Debug().Create(&person).Error; err != nil {
+		t.Fatalf("Failed to create person: %v", err)
 	}
 
 	// Fetch without FETCH clause
@@ -66,12 +54,13 @@ func TestFetch(t *testing.T) {
 	// But let's verify FETCH first.
 
 	// Now Fetch WITH FETCH clause
+	t.Logf("Fetching Person with ID: %s", person.ID)
 	var p2 Person
 	// We want to verify generated SQL contains "FETCH book" and populated struct.
 	// We need to implement the Fetch clause first or just use it here locally to test.
 	// I defined Fetch struct above to use it.
 
-	err := db.Debug().Clauses(surrealdb.Fetch{Fields: []string{"book"}}).First(&p2, "id = ?", personInput.ID).Error
+	err = db.Debug().Select("*, book_id AS book").Clauses(surrealdb.Fetch{Fields: []string{"book"}}).First(&p2, "id = ?", person.ID).Error
 	if err != nil {
 		t.Fatalf("Failed to query with FETCH: %v", err)
 	}

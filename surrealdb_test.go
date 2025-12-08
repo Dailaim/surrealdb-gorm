@@ -1,6 +1,7 @@
 package surrealdb_test
 
 import (
+	"fmt"
 	"testing" // Ensure time is imported
 	"time"
 
@@ -71,7 +72,7 @@ func TestFind(t *testing.T) {
 	db.Create(&user)
 
 	var users []User
-	result := db.Find(&users)
+	result := db.Debug().Find(&users)
 	if result.Error != nil {
 		t.Fatalf("Failed to query: %v", result.Error)
 	}
@@ -94,7 +95,12 @@ func TestUpdate(t *testing.T) {
 	}
 
 	var u User
-	db.First(&u, "id = ?", user.ID)
+	err := db.First(&u, "id = ?", user.ID).Error
+	if err != nil {
+		t.Errorf("Failed to find updated user: %v", err)
+	}
+	fmt.Printf("%#v", u)
+
 	if u.Age != 99 {
 		t.Errorf("Expected age to be 99, got %d", u.Age)
 	}
