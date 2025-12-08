@@ -1,6 +1,10 @@
 package types
 
-import "github.com/surrealdb/surrealdb.go/pkg/models"
+import (
+	"database/sql/driver"
+
+	"github.com/surrealdb/surrealdb.go/pkg/models"
+)
 
 type RecordID struct {
 	models.RecordID
@@ -16,6 +20,9 @@ func (r *RecordID) StringToRecordID(s string) error {
 }
 
 // Value implements driver.Valuer
+func (r RecordID) Value() (driver.Value, error) {
+	return r.String(), nil
+}
 
 func (RecordID) GormDataType() string {
 	return "record"
