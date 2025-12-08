@@ -1,4 +1,4 @@
-package surrealdb
+package clauses
 
 import (
 	"gorm.io/gorm/clause"

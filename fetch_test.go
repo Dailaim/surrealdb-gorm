@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/dailaim/surrealdb-gorm"
+	"github.com/dailaim/surrealdb-gorm/clauses"
 	"github.com/dailaim/surrealdb-gorm/types"
 )
 
@@ -60,7 +61,7 @@ func TestFetch(t *testing.T) {
 	// We need to implement the Fetch clause first or just use it here locally to test.
 	// I defined Fetch struct above to use it.
 
-	err = db.Debug().Select("*, book_id AS book").Clauses(surrealdb.Fetch{Fields: []string{"book"}}).First(&p2, "id = ?", person.ID).Error
+	err = db.Debug().Select("*, book_id AS book").Clauses(clauses.Fetch{Fields: []string{"book"}}).First(&p2, "id = ?", person.ID).Error
 	if err != nil {
 		t.Fatalf("Failed to query with FETCH: %v", err)
 	}
