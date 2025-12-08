@@ -1,4 +1,4 @@
-package surrealdb
+package models
 
 import (
 	"time"
@@ -12,13 +12,13 @@ import (
 //	type User struct {
 //	  surrealdb.Model
 //	}
-type Model struct {
+type Schemafull struct {
 	ID        *types.RecordID  `gorm:"primaryKey;type:record;<-:create" json:"id,omitempty"`
 	CreatedAt time.Time        `json:"created_at,omitempty"`
 	UpdatedAt time.Time        `json:"updated_at,omitempty"`
 	DeletedAt *types.DeletedAt `gorm:"index;softDelete:true" json:"deleted_at,omitempty"`
 }
 
-func (m *Model) GetID() *types.RecordID {
+func (m *Schemafull) GetID() *types.RecordID {
 	return m.ID
 }
