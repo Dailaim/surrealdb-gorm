@@ -120,7 +120,7 @@ func TestPreloadFetch(t *testing.T) {
 
 type Node struct {
 	surrealdb.Model
-	Name string           `gorm:"column:name" json:"name"`
+	Name string           `gorm:"column:name" json:"aaaa"`
 	Next types.Link[Node] `json:"next,omitempty"`
 }
 

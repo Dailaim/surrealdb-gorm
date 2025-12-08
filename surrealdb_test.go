@@ -51,7 +51,7 @@ func TestCreate(t *testing.T) {
 	db := setupDB(t)
 
 	user := User{Name: "Jinzhu", Age: 18}
-	db.Create(&user)
+	db.Debug().Create(&user)
 
 	if user.ID == nil {
 		t.Errorf("Expected ID to be populated")
