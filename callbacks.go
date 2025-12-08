@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	TypesM "github.com/dailaim/surrealdb-gorm/types"
 	"github.com/surrealdb/surrealdb.go"
 	"github.com/surrealdb/surrealdb.go/pkg/models"
 	"gorm.io/gorm"
@@ -102,19 +103,10 @@ func CreateCallback(db *gorm.DB) {
 			}
 		}
 
-		// We can check if the model has a "ID" field that is *models.RecordID and not nil
-
-		// We can check if the model has a "ID" field that is *models.RecordID and not nil
-		if db.Statement.Schema != nil {
-			field := db.Statement.Schema.LookUpField("ID")
-			if field != nil && field.FieldType == reflect.TypeOf(&models.RecordID{}) {
-				// Get value
-				val, isZero := field.ValueOf(db.Statement.Context, db.Statement.ReflectValue)
-				if !isZero {
-					if rid, ok := val.(*models.RecordID); ok && rid != nil {
-						whatRecord = rid
-					}
-				}
+		// Handle Timestamps
+		if model, ok := db.Statement.Model.(TypesM.LinkVal); ok {
+			if model.GetID() != nil {
+				whatRecord = &model.GetID().RecordID
 			}
 		}
 
@@ -311,24 +303,38 @@ func UpdateCallback(db *gorm.DB) {
 		}
 
 		// Manual SQL Generation for Update
-		// GORM standard processor seems to fail or bypass ExecContext for SurrealDB.
-		// We will build the UPDATE statement manually from the clauses.
-
 		if db.Statement.SQL.Len() == 0 {
 			db.Statement.SQL.Grow(180)
-			db.Statement.AddClauseIfNotExists(clause.Update{})
+
+			// Handle Update Clause (Table vs Record ID)
+			handledUpdate := false
+			if model, ok := db.Statement.Model.(TypesM.LinkVal); ok {
+				// Use explicit record ID
+				db.Statement.Clauses["UPDATE"] = clause.Clause{
+					Name:       "UPDATE",
+					Expression: clause.Expr{SQL: model.GetID().String()},
+				}
+				handledUpdate = true
+			}
+
+			if !handledUpdate {
+				db.Statement.AddClauseIfNotExists(clause.Update{})
+			}
+
 			db.Statement.AddClauseIfNotExists(clause.Set{})
 			db.Statement.AddClauseIfNotExists(clause.Where{})
 
 			// Manually populate SET clause if empty
 			if set, ok := db.Statement.Clauses["SET"]; ok {
 				if _, ok := set.Expression.(clause.Set); ok {
-					// Check if assignments are empty?
-					// Simpler: iterate Dest if it's a Map or Struct and generated assignments
 					var assignments []clause.Assignment
 
 					if destMap, ok := db.Statement.Dest.(map[string]interface{}); ok {
 						for k, v := range destMap {
+							// Filter out ID from updates
+							if k == "id" {
+								continue
+							}
 							assignments = append(assignments, clause.Assignment{Column: clause.Column{Name: k}, Value: v})
 						}
 					} else if db.Statement.Schema != nil {
@@ -350,7 +356,6 @@ func UpdateCallback(db *gorm.DB) {
 								}
 
 								// Check if value is zero (for Updates, we usually skip zero values unless Select/Omit used)
-								// For simplicity here, we skip zero values to match generic Updates behavior.
 								if val, isZero := field.ValueOf(db.Statement.Context, destValue); !isZero {
 									assignments = append(assignments, clause.Assignment{Column: clause.Column{Name: field.DBName}, Value: val})
 								}
@@ -375,9 +380,6 @@ func UpdateCallback(db *gorm.DB) {
 
 		db.Statement.Build(db.Statement.BuildClauses...)
 
-		// Sanity Check: If SQL contains `SET` with no assignments?
-		// execution will handle it or DB returns error.
-
 		executeSQL(db)
 	}
 }
@@ -396,6 +398,34 @@ func DeleteCallback(db *gorm.DB) {
 			// Soft Delete check
 			if db.Statement.Schema != nil && db.Statement.Schema.LookUpField("DeletedAt") != nil && !db.Statement.Unscoped {
 				db.Statement.AddClauseIfNotExists(clause.Update{}) // Switch to UPDATE
+
+				// Handle RecordID for soft delete update too if needed
+				if model, ok := db.Statement.Model.(TypesM.LinkVal); ok {
+					// Overwrite the UPDATE clause usually added by AddClauseIfNotExists(clause.Update{}) above?
+					// AddClauseIfNotExists won't add if exists. GORM doesn't default add UPDATE clause before this?
+					// Actually DeleteCallback construction is manual here too.
+
+					// Let's replace the clause if provided.
+					// Actually we just added clause.Update{}.
+					// Ideally we should do same logic as UpdateCallback for Soft Delete target.
+
+					// Re-doing the AddClause logic:
+					// Check existing clauses map?
+					// No, we are building it now.
+
+					// Note: The previous code just did `db.Statement.AddClauseIfNotExists(clause.Update{})`.
+					// This meant Soft Delete uses `UPDATE table`.
+					// Using `UPDATE table` is fine for SurrealDB IF `executeSQL` patched it.
+					// But we are removing `executeSQL` patch.
+					// SO WE MUST FIX DELETE CALLBACK TOO if it uses UPDATE for Soft Delete.
+
+					// Let's fix Soft Delete Update target:
+					db.Statement.Clauses["UPDATE"] = clause.Clause{
+						Name:       "UPDATE",
+						Expression: clause.Expr{SQL: model.GetID().String()},
+					}
+				}
+
 				db.Statement.AddClause(clause.Set{
 					{Column: clause.Column{Name: "deleted_at"}, Value: time.Now()},
 				})
@@ -429,51 +459,14 @@ func executeSQL(db *gorm.DB) {
 	}
 
 	// Hack: Remove IS NULL check for Soft Delete compatibility
-	sql = strings.ReplaceAll(sql, " AND `deleted_at` IS NULL", "")
+	sql = strings.ReplaceAll(sql, " AND (`deleted_at` IS NULL)", "")
 
 	// Filter out "id" from UPDATE SET clause (SurrealDB error: specified record conflict)
 	if strings.HasPrefix(strings.TrimSpace(sql), "UPDATE") {
-		lowerSql := strings.ToLower(sql)
-		setIdx := strings.Index(lowerSql, " set ")
-		whereIdx := strings.LastIndex(lowerSql, " where ") // LastIndex to be safe? usually one WHERE
-
-		if setIdx != -1 && (whereIdx == -1 || setIdx < whereIdx) {
-			beforeSet := sql[:setIdx+5] // "UPDATE ... SET "
-			var setPart string
-			var afterSet string
-
-			if whereIdx != -1 {
-				setPart = sql[setIdx+5 : whereIdx]
-				afterSet = sql[whereIdx:]
-			} else {
-				setPart = sql[setIdx+5:]
-				afterSet = ""
-			}
-
-			// Remove id assignments in setPart
-			// Patterns:
-			// 1. `"id" = $pX, `
-			// 2. `, "id" = $pX`
-			// 3. `"id" = $pX`
-
-			// Naive split by comma?
-			// "col" = val. val might contain comma? $pX usually doesn't.
-			// But if generic driver, val could be string literal? No, using bind vars $pX.
-			// So splitting by comma is relatively safe IF we trust GORM param binding.
-
-			parts := strings.Split(setPart, ",")
-			var cleanParts []string
-			for _, p := range parts {
-				trimmed := strings.TrimSpace(p)
-				// Check if targets atomic ID
-				if strings.HasPrefix(trimmed, "`id` =") || strings.HasPrefix(trimmed, "id =") {
-					continue
-				}
-				cleanParts = append(cleanParts, p)
-			}
-			newSetPart := strings.Join(cleanParts, ", ")
-			sql = beforeSet + newSetPart + " " + afterSet
-		}
+		// Clean up soft delete checks for surrealdb specific syntax (IS NONE)
+		whatTable := db.Statement.Table
+		sql = strings.ReplaceAll(sql, "`deleted_at` IS NULL", "(`deleted_at` IS NULL OR `deleted_at` IS NONE)")
+		sql = strings.ReplaceAll(sql, fmt.Sprintf("`%s`.`deleted_at` IS NULL", whatTable), fmt.Sprintf("(`%s`.`deleted_at` IS NULL OR `%s`.`deleted_at` IS NONE)", whatTable, whatTable))
 	}
 
 	vars := db.Statement.Vars

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/dailaim/surrealdb-gorm"
+	"github.com/dailaim/surrealdb-gorm/types"
 )
 
 type Book struct {
@@ -18,7 +19,7 @@ func (Book) TableName() string {
 type Person struct {
 	surrealdb.Model
 	Name string
-	Book surrealdb.Link[Book] `json:"book,omitempty"`
+	Book types.Link[Book] `json:"book,omitempty"`
 }
 
 func TestFetch(t *testing.T) {
@@ -67,6 +68,11 @@ func TestFetch(t *testing.T) {
 	if p2.Book.Data == nil {
 		t.Fatal("Expected p2.Book to be populated")
 	}
+
+	if p2.Book.ID == nil {
+		t.Fatal("Expected p2.Book.ID to be populated")
+	}
+
 	if p2.Book.Data.Title != "SurrealDB Guide" {
 		t.Errorf("Expected book title 'SurrealDB Guide', got '%s'", p2.Book.Data.Title)
 	}

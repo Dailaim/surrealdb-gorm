@@ -89,7 +89,7 @@ func TestUpdate(t *testing.T) {
 
 	// Update
 	// user.Age = 20
-	result := db.Model(&user).Update("age", 99)
+	result := db.Debug().Model(&user).Update("age", 99)
 	if result.Error != nil {
 		t.Errorf("Failed to update: %v", result.Error)
 	}

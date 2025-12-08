@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/dailaim/surrealdb-gorm"
+	"github.com/dailaim/surrealdb-gorm/types"
 )
 
 // AllTypes struct to verify support for all requested data types
@@ -26,16 +27,16 @@ type AllTypes struct {
 
 	// Time
 	Time     time.Time
-	Duration surrealdb.Duration // Uses our custom wrapper
+	Duration types.Duration // Uses our custom wrapper
 
 	// Simple Geometry
-	Location   surrealdb.GeometryPoint // Uses our custom wrapper which has GormDataType
-	LineString surrealdb.GeometryLine
-	Polygon    surrealdb.GeometryPolygon
-	MultiPoint surrealdb.GeometryMultiPoint
-	MultiLine  surrealdb.GeometryMultiLineString
-	MultiPoly  surrealdb.GeometryMultiPolygon
-	Collection surrealdb.GeometryCollection
+	Location   types.GeometryPoint // Uses our custom wrapper which has GormDataType
+	LineString types.GeometryLine
+	Polygon    types.GeometryPolygon
+	MultiPoint types.GeometryMultiPoint
+	MultiLine  types.GeometryMultiLineString
+	MultiPoly  types.GeometryMultiPolygon
+	Collection types.GeometryCollection
 
 	// UUID (simulated as string, or user can use google/uuid which marshals to string)
 	UUID string `gorm:"type:string"`
@@ -56,21 +57,21 @@ func TestAllTypes(t *testing.T) {
 	// Prepare data
 	now := time.Now().Round(time.Second) // Round for comparison stability
 	// Coordinates [lon, lat]
-	loc := surrealdb.NewPoint(-0.118092, 51.509865)
+	loc := types.NewPoint(-0.118092, 51.509865)
 
 	// Duration: 1h30m
 	durBase, _ := time.ParseDuration("1h30m")
-	dur := surrealdb.Duration{Duration: durBase}
+	dur := types.Duration{Duration: durBase}
 
 	// Other Geometries
-	line := surrealdb.NewLineString([][]float64{{0, 0}, {1, 1}})
-	poly := surrealdb.NewPolygon([][][]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}})
-	mpoint := surrealdb.NewMultiPoint([][]float64{{0, 0}, {1, 1}})
-	mline := surrealdb.NewMultiLineString([][][]float64{{{0, 0}, {1, 1}}, {{2, 2}, {3, 3}}})
-	mpoly := surrealdb.NewMultiPolygon([][][][]float64{{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}}})
+	line := types.NewLineString([][]float64{{0, 0}, {1, 1}})
+	poly := types.NewPolygon([][][]float64{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}})
+	mpoint := types.NewMultiPoint([][]float64{{0, 0}, {1, 1}})
+	mline := types.NewMultiLineString([][][]float64{{{0, 0}, {1, 1}}, {{2, 2}, {3, 3}}})
+	mpoly := types.NewMultiPolygon([][][][]float64{{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}}})
 	// Collection containing a point
-	coll := surrealdb.NewGeometryCollection([]interface{}{
-		surrealdb.NewPoint(10, 10),
+	coll := types.NewGeometryCollection([]interface{}{
+		types.NewPoint(10, 10),
 	})
 
 	data := AllTypes{
@@ -170,7 +171,7 @@ func TestBytesDirect(t *testing.T) {
 	// Define a struct to read back results
 	type BytesStruct struct {
 		surrealdb.Model
-		Data surrealdb.Bytes `gorm:"type:bytes"`
+		Data types.Bytes `gorm:"type:bytes"`
 	}
 
 	// Test using db.Create to verify MarshalJSON path
@@ -185,7 +186,7 @@ func TestBytesDirect(t *testing.T) {
 
 	payload := []byte("Direct Bytes Payload")
 	item := BytesStruct{
-		Data: surrealdb.Bytes(payload),
+		Data: types.Bytes(payload),
 	}
 
 	if err := db.Create(&item).Error; err != nil {
