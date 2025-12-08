@@ -13,6 +13,8 @@ import (
 	"github.com/surrealdb/surrealdb.go/pkg/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	"github.com/dailaim/surrealdb-gorm/clauses"
 )
 
 func RegisterCallbacks(db *gorm.DB) {
@@ -26,7 +28,93 @@ func RegisterCallbacks(db *gorm.DB) {
 	db.Callback().Delete().Replace("gorm:delete", DeleteCallback)
 
 	// Query
+	db.Callback().Query().Before("gorm:query").Register("surreal:handle_preload", handlePreloadAsFetch)
+
 	db.Callback().Query().Replace("gorm:query", QueryCallback)
+}
+
+func handlePreloadAsFetch(db *gorm.DB) {
+	if db.Error != nil {
+		return
+	}
+	// Convert Preloads to FETCH
+	if len(db.Statement.Preloads) > 0 {
+		var fields []string
+		for name := range db.Statement.Preloads {
+			// Handle nested paths (e.g., "Next.Next")
+			parts := strings.Split(name, ".")
+			var dbParts []string
+
+			// We try to walk the schema if possible, but for Link[T] generic relations,
+			// GORM might not have the full Relationship Schema loaded on the field.
+			// We start with the current Statement Schema.
+			currentSchema := db.Statement.Schema
+
+			for _, part := range parts {
+				mapped := part
+				// Try lookup in current schema
+				if currentSchema != nil {
+					if field := currentSchema.LookUpField(part); field != nil {
+						mapped = field.DBName
+						// Attempt to switch schema for next part if relation exists
+						if field.Schema != nil {
+							currentSchema = field.Schema
+						} else {
+							// Check if valid Relation (rare for simple structural structs without tags)
+							// If not found, we lose context for next parts.
+							// We can nullify currentSchema to stop trying LookUpField
+							// or we can try to guess if it's a struct field.
+							// For now, fallback to NamingStrategy or just part.
+
+							// If we lost schema track (e.g. Link[T]), we rely on NamingStrategy
+							currentSchema = nil
+						}
+					}
+				}
+
+				// Final Fallback: use NamingStrategy to guess DBName (usually snake_case)
+				// if we couldn't resolve it via Schema or if Schema was nil.
+				if mapped == part {
+					mapped = db.NamingStrategy.ColumnName("", part)
+				}
+
+				dbParts = append(dbParts, mapped)
+			}
+
+			// Expand prefixes to ensure all intermediate nodes are fetched
+			// path: next.next.next
+			// -> next
+			// -> next.next
+			// -> next.next.next
+
+			// Rebuild clean path from dbParts
+			var currentPath string
+			for i, dbPart := range dbParts {
+				if i == 0 {
+					currentPath = dbPart
+				} else {
+					currentPath = currentPath + "." + dbPart
+				}
+				fields = append(fields, currentPath)
+			}
+		}
+
+		// Deduplicate fields
+		seen := make(map[string]bool)
+		var uniqueFields []string
+		for _, f := range fields {
+			if !seen[f] {
+				seen[f] = true
+				uniqueFields = append(uniqueFields, f)
+			}
+		}
+
+		if len(uniqueFields) > 0 {
+			db.Statement.AddClause(clauses.Fetch{Fields: uniqueFields})
+		}
+		// Clear Preloads so GORM doesn't try to load them again
+		db.Statement.Preloads = nil
+	}
 }
 
 func CreateCallback(db *gorm.DB) {
@@ -184,6 +272,7 @@ func QueryCallback(db *gorm.DB) {
 			},
 		})
 	}
+
 	// Optimization: If querying by ID only, use SELECT * FROM ID
 	// Check if WHERE clause contains only ID
 	if db.Statement.Schema != nil {
@@ -323,6 +412,26 @@ func UpdateCallback(db *gorm.DB) {
 
 			db.Statement.AddClauseIfNotExists(clause.Set{})
 			db.Statement.AddClauseIfNotExists(clause.Where{})
+
+			if db.Statement.Schema != nil {
+				now := time.Now()
+				if field := db.Statement.Schema.LookUpField("UpdatedAt"); field != nil {
+					// Handle Struct vs Map
+					rv := db.Statement.ReflectValue
+					for rv.Kind() == reflect.Ptr {
+						rv = rv.Elem()
+					}
+
+					if rv.Kind() == reflect.Struct {
+						field.Set(db.Statement.Context, db.Statement.ReflectValue, now)
+					} else if rv.Kind() == reflect.Map {
+						// Assuming map[string]interface{} as GORM usually uses for Updates
+						if destMap, ok := db.Statement.Dest.(map[string]interface{}); ok {
+							destMap[field.DBName] = now
+						}
+					}
+				}
+			}
 
 			// Manually populate SET clause if empty
 			if set, ok := db.Statement.Clauses["SET"]; ok {
