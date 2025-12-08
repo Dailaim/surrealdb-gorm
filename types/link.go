@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"reflect"
 
 	"github.com/surrealdb/surrealdb.go/pkg/models"
 )
@@ -57,7 +58,13 @@ func (l *Link[T]) Scan(value interface{}) error {
 	case string:
 		data = []byte(v)
 	default:
-		return fmt.Errorf("tipo no soportado para Link: %T", value)
+		// Handle map/slice directly if driver returns it?
+		// Fallback to json marshal
+		b, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("tipo no soportado para Link: %T", value)
+		}
+		data = b
 	}
 
 	if len(data) == 0 {
@@ -65,7 +72,7 @@ func (l *Link[T]) Scan(value interface{}) error {
 	}
 
 	// 2. Si empieza con '{', es un objeto (FETCH realizado)
-	if data[0] == '{' {
+	if len(data) > 0 && data[0] == '{' {
 		var obj T
 		if err := json.Unmarshal(data, &obj); err != nil {
 			return err
@@ -101,6 +108,21 @@ func (l Link[T]) Value() (driver.Value, error) {
 	}
 	// Si tenemos el objeto cargado pero no el ID separado, intentamos obtener el ID del objeto
 	// (Esto depende de tu lógica, pero por seguridad devolvemos nil si no hay ID)
+	// Try to get ID from Data
+	if l.Data != nil {
+		val := reflect.ValueOf(l.Data)
+		if val.Kind() == reflect.Ptr {
+			val = val.Elem()
+		}
+		if val.Kind() == reflect.Struct {
+			// Naive check for ID field?
+			// Best to rely on interface
+			if getter, ok := any(l.Data).(LinkVal); ok {
+				return getter.GetID(), nil
+			}
+		}
+	}
+
 	return nil, nil
 }
 
@@ -113,7 +135,7 @@ func (l Link[T]) MarshalJSON() ([]byte, error) {
 		return json.Marshal(l.Data) // Devuelve el objeto completo
 	}
 	if l.ID != nil {
-		return json.Marshal(l.ID) // Devuelve solo el string ID
+		return json.Marshal(l.ID.String()) // Devuelve solo el string ID
 	}
 	return json.Marshal(nil)
 }
