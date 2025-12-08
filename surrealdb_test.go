@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm/logger"
 
-	"github.com/dailaim/2077/pkg/surrealdb"
+	"github.com/dailaim/surrealdb-gorm"
 	"gorm.io/gorm"
 )
 
@@ -22,7 +22,7 @@ func (u *User) BeforeDelete(tx *gorm.DB) (err error) {
 }
 
 func setupDB(t *testing.T) *gorm.DB {
-	dsn := "ws://10.88.0.1:8000/rpc?namespace=test&database=test&username=root&password=secret"
+	dsn := "wss://shiny-ocean-06dfnpnrpprgdf3fmb8e7vtpuo.aws-use1.surreal.cloud/rpc?namespace=test&database=test&username=root&password=root"
 	db, err := gorm.Open(surrealdb.Open(dsn), &gorm.Config{
 		SkipDefaultTransaction: true,
 		Logger:                 logger.Default.LogMode(logger.Warn),
