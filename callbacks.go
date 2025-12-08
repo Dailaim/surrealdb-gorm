@@ -191,8 +191,8 @@ func CreateCallback(db *gorm.DB) {
 			}
 		}
 
-		// Handle Timestamps
-		if model, ok := db.Statement.Model.(TypesM.LinkVal); ok {
+		// Handle LinkVal
+		if model, ok := db.Statement.Model.(TypesM.Identifiable); ok {
 			if model.GetID() != nil {
 				whatRecord = &model.GetID().RecordID
 			}
@@ -468,7 +468,7 @@ func UpdateCallback(db *gorm.DB) {
 
 			// Handle Update Clause (Table vs Record ID)
 			handledUpdate := false
-			if model, ok := db.Statement.Model.(TypesM.LinkVal); ok {
+			if model, ok := db.Statement.Model.(TypesM.Identifiable); ok {
 				// Use explicit record ID
 				db.Statement.Clauses["UPDATE"] = clause.Clause{
 					Name:       "UPDATE",
@@ -598,7 +598,7 @@ func DeleteCallback(db *gorm.DB) {
 				db.Statement.AddClauseIfNotExists(clause.Update{}) // Switch to UPDATE
 
 				// Handle RecordID for soft delete update too if needed
-				if model, ok := db.Statement.Model.(TypesM.LinkVal); ok {
+				if model, ok := db.Statement.Model.(TypesM.Identifiable); ok {
 					// Overwrite the UPDATE clause usually added by AddClauseIfNotExists(clause.Update{}) above?
 					// AddClauseIfNotExists won't add if exists. GORM doesn't default add UPDATE clause before this?
 					// Actually DeleteCallback construction is manual here too.

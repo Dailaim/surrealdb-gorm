@@ -9,7 +9,7 @@ import (
 	"github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
-type LinkVal interface {
+type Identifiable interface {
 	GetID() *RecordID
 }
 
@@ -29,7 +29,7 @@ func (l *Link[T]) UnmarshalJSON(data []byte) error {
 		if err := SurrealMapToStruct(&obj, data); err == nil {
 			l.Data = &obj
 			// Aquí podrías extraer el ID del objeto si tu struct T tiene campo ID
-			if getter, ok := any(&obj).(LinkVal); ok {
+			if getter, ok := any(&obj).(Identifiable); ok {
 				l.ID = getter.GetID()
 			}
 			return nil
@@ -81,7 +81,7 @@ func (l *Link[T]) Scan(value interface{}) error {
 		}
 		l.Data = &obj
 
-		if getter, ok := any(&obj).(LinkVal); ok {
+		if getter, ok := any(&obj).(Identifiable); ok {
 			l.ID = getter.GetID()
 		}
 
@@ -119,7 +119,7 @@ func (l Link[T]) Value() (driver.Value, error) {
 		if val.Kind() == reflect.Struct {
 			// Naive check for ID field?
 			// Best to rely on interface
-			if getter, ok := any(l.Data).(LinkVal); ok {
+			if getter, ok := any(l.Data).(Identifiable); ok {
 				return getter.GetID(), nil
 			}
 		}
