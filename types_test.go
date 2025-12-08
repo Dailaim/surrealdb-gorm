@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dailaim/2077/pkg/surrealdb"
+	"github.com/dailaim/surrealdb-gorm"
 )
 
 // AllTypes struct to verify support for all requested data types

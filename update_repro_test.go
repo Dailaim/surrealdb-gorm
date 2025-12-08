@@ -3,7 +3,7 @@ package surrealdb_test
 import (
 	"testing"
 
-	"github.com/dailaim/2077/pkg/surrealdb"
+	"github.com/dailaim/surrealdb-gorm"
 )
 
 type UserUpdate struct {
