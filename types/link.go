@@ -25,7 +25,8 @@ func (l *Link[T]) UnmarshalJSON(data []byte) error {
 	// Si el primer caracter es '{', es un objeto
 	if len(data) > 0 && data[0] == '{' {
 		var obj T
-		if err := json.Unmarshal(data, &obj); err == nil {
+		// Use SurrealMapToStruct to respect GORM tags
+		if err := SurrealMapToStruct(&obj, data); err == nil {
 			l.Data = &obj
 			// Aquí podrías extraer el ID del objeto si tu struct T tiene campo ID
 			if getter, ok := any(&obj).(LinkVal); ok {
@@ -74,7 +75,8 @@ func (l *Link[T]) Scan(value interface{}) error {
 	// 2. Si empieza con '{', es un objeto (FETCH realizado)
 	if len(data) > 0 && data[0] == '{' {
 		var obj T
-		if err := json.Unmarshal(data, &obj); err != nil {
+		// Usamos SurrealMapToStruct para respetar tags de GORM (column:...)
+		if err := SurrealMapToStruct(&obj, data); err != nil {
 			return err
 		}
 		l.Data = &obj

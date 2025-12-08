@@ -198,6 +198,29 @@ func CreateCallback(db *gorm.DB) {
 			}
 		}
 
+		// Prepare data for SurrealDB
+		var createData interface{} = db.Statement.Dest
+
+		// If Schema is available, convert struct to map using DBName to respect GORM tags
+		if db.Statement.Schema != nil && db.Statement.ReflectValue.Kind() == reflect.Struct {
+			dataMap := make(map[string]interface{})
+			for _, field := range db.Statement.Schema.Fields {
+				if field.DBName == "" {
+					continue
+				}
+				// Get value
+				val, isZero := field.ValueOf(db.Statement.Context, db.Statement.ReflectValue)
+				// If isZero, we usually skip unless Default Value?
+				// GORM usually handles defaults before?
+				// If invalid/zero and not nullable?
+				// For now simple dump:
+				if !isZero {
+					dataMap[field.DBName] = val
+				}
+			}
+			createData = dataMap
+		}
+
 		var created *interface{}
 		var err error
 		// fmt.Printf("Dest: %#v\n", db.Statement.Dest)
@@ -213,9 +236,9 @@ func CreateCallback(db *gorm.DB) {
 		if whatRecord != nil {
 			// If ID is specified, treat as Upsert/Update.
 			// surrealdb.Update overwrites the record content, matching GORM Save semantics.
-			created, err = surrealdb.Update[interface{}](db.Statement.Context, dialector.Conn, *whatRecord, db.Statement.Dest)
+			created, err = surrealdb.Update[interface{}](db.Statement.Context, dialector.Conn, *whatRecord, createData)
 		} else {
-			created, err = surrealdb.Create[interface{}](db.Statement.Context, dialector.Conn, models.Table(whatTable), db.Statement.Dest)
+			created, err = surrealdb.Create[interface{}](db.Statement.Context, dialector.Conn, models.Table(whatTable), createData)
 		}
 
 		if err != nil {
@@ -241,6 +264,54 @@ func CreateCallback(db *gorm.DB) {
 				dataToUnmarshal = created
 			}
 
+			// If Schema available, manually map back to respect GORM tags (DBName -> Field)
+			// because json.Unmarshal expects JSON tags which might differ.
+			if db.Statement.Schema != nil && db.Statement.ReflectValue.Kind() == reflect.Struct {
+				// dataToUnmarshal should be map[string]interface{} (from JSON/CBOR decode usually)
+				// If it is a struct or something else, we fallback.
+				// SurrealDB driver (using interface{} generic) returns mostly map[string]interface{}.
+
+				// Helper to convert to map if needed (e.g. if driver returns generic struct or custom type?)
+				// Usually it's better to rely on JSON marshal/unmarshal for type conversion,
+				// but here we want Key mapping (DBName -> Field).
+
+				// Let's marshall to bytes first to ensure we have a common format (JSON)
+				bytes, err := json.Marshal(dataToUnmarshal)
+				if err == nil {
+					var resultMap map[string]interface{}
+					if err := json.Unmarshal(bytes, &resultMap); err == nil {
+						// Iterate Schema Fields and populate from resultMap using DBName
+						for _, field := range db.Statement.Schema.Fields {
+							if val, ok := resultMap[field.DBName]; ok {
+								// Found value for DBName.
+								// We need to set it to the struct field.
+								// Direct field.Set might fail if types mismatch (e.g. map vs struct).
+								// We use intermediate JSON marshal/unmarshal to handle type conversion reliably.
+
+								// Get field value (addressable)
+								fieldVal := db.Statement.ReflectValue.FieldByIndex(field.StructField.Index)
+								if fieldVal.CanAddr() {
+									// Marshal the value from map to JSON bytes
+									valBytes, err := json.Marshal(val)
+									if err == nil {
+										// Unmarshal JSON bytes into the field address
+										if err := json.Unmarshal(valBytes, fieldVal.Addr().Interface()); err != nil {
+											// Fallback: try direct set if Unmarshal failed (unlikely for matched types)
+											// field.Set(db.Statement.Context, db.Statement.ReflectValue, val)
+											// Log error?
+											// fmt.Printf("Error unmarshaling field %s: %v\n", field.Name, err)
+										}
+									}
+								}
+							}
+						}
+						// Return to skip the fallback full-struct unmarshal
+						return
+					}
+				}
+			}
+
+			// Fallback to strict JSON unmarshal if Schema not available or above failed
 			bytes, err := json.Marshal(dataToUnmarshal)
 			if err == nil {
 				// Unmarshal into Dest
@@ -423,7 +494,17 @@ func UpdateCallback(db *gorm.DB) {
 					}
 
 					if rv.Kind() == reflect.Struct {
-						field.Set(db.Statement.Context, db.Statement.ReflectValue, now)
+						// Check if we can set
+						// We need to check if the field within the struct is settable.
+						// GORM field.Set uses field.ReflectValueOf which returns the field Value.
+						// We can't easily check CanSet via field helper without duplicating logic.
+						// But we know if 'rv' is not addressable (passed by value), we can't set fields.
+						if rv.CanAddr() {
+							field.Set(db.Statement.Context, db.Statement.ReflectValue, now)
+						}
+						// If not addressable, we simply skip setting the struct field.
+						// We will ensure it is added to SET clause below.
+
 					} else if rv.Kind() == reflect.Map {
 						// Assuming map[string]interface{} as GORM usually uses for Updates
 						if destMap, ok := db.Statement.Dest.(map[string]interface{}); ok {
@@ -454,6 +535,7 @@ func UpdateCallback(db *gorm.DB) {
 						}
 
 						if destValue.Kind() == reflect.Struct {
+							now := time.Now() // Use fresh time or consistent? Consistent is better but okay.
 							for _, field := range db.Statement.Schema.Fields {
 								if field.DBName == "" {
 									continue
@@ -461,6 +543,13 @@ func UpdateCallback(db *gorm.DB) {
 								// Skip primary key usually? Or allow updating it? GORM usually allows unless restricted.
 								// But we shouldn't update ID if it's the matcher.
 								if field.DBName == "id" {
+									continue
+								}
+
+								// Special UpdatedAt handling
+								if field.Name == "UpdatedAt" {
+									// Always set UpdatedAt
+									assignments = append(assignments, clause.Assignment{Column: clause.Column{Name: field.DBName}, Value: now})
 									continue
 								}
 
@@ -675,6 +764,27 @@ func executeSQL(db *gorm.DB) {
 			if err == nil {
 				// Debug JSON
 				// fmt.Printf("DEBUG SELECT JSON: %s\n", string(bytes))
+
+				// Try Manual Map if Schema is available to respect GORM tags (DBName)
+				if db.Statement.Schema != nil && destVal.Kind() == reflect.Struct {
+					var resultMap map[string]interface{}
+					if err := json.Unmarshal(bytes, &resultMap); err == nil {
+						for _, field := range db.Statement.Schema.Fields {
+							if val, ok := resultMap[field.DBName]; ok {
+								fieldVal := db.Statement.ReflectValue.FieldByIndex(field.StructField.Index)
+								if fieldVal.CanAddr() {
+									valBytes, err := json.Marshal(val)
+									if err == nil {
+										if err := json.Unmarshal(valBytes, fieldVal.Addr().Interface()); err != nil {
+											// Ignore error
+										}
+									}
+								}
+							}
+						}
+						return
+					}
+				}
 
 				if err := json.Unmarshal(bytes, db.Statement.Dest); err != nil {
 					// fmt.Printf("DEBUG EXECUTE SQL UNMARSHAL ERROR: %v\n", err)
