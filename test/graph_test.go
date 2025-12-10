@@ -8,22 +8,29 @@ import (
 
 type Buyer struct {
 	models.Schemaless
-	Name string
+	Name     string
+	Wishlist []Wishlist `gorm:"foreignKey:in"`
+	Products []Product  `gorm:"many2many:wishlist;"`
 }
 
+// this is arc for many to many
 type Wishlist struct {
-	models.RelationSchemaless
+	models.RelationSchemaless[Buyer, Product]
 }
 
 type Product struct {
 	models.Schemaless
-	Name string
+	Name     string
+	Wishlist []Wishlist `gorm:"foreignKey:out"`
+	Buyers   []Buyer    `gorm:"many2many:wishlist;"`
 }
 
 func TestGraphManyToMany(t *testing.T) {
 	db := setupDB(t)
 
-	db.AutoMigrate(&Buyer{}, &Wishlist{}, &Product{})
+	db.AutoMigrate(&Buyer{}, &Product{})
+
+	db.AutoMigrate(&Wishlist{})
 
 	buyer := Buyer{
 		Name: "Alice",

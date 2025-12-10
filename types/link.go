@@ -149,3 +149,7 @@ func (l Link[T]) MarshalCBOR() ([]byte, error) {
 	nilCustom := models.CustomNil{}
 	return nilCustom.MarshalCBOR()
 }
+
+func (Link[T]) GormDataType() string {
+	return "link"
+}
