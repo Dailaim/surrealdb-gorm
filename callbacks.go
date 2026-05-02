@@ -25,8 +25,13 @@ func RegisterCallbacks(db *gorm.DB) {
 	// Update
 	db.Callback().Update().Replace("gorm:update", UpdateCallback)
 
-	// Delete
+	// Delete — edge association helpers run before the main delete
+	db.Callback().Delete().Before("gorm:delete").Register("surreal:edge_assoc_delete", edgeAssocDeleteCallback)
+	db.Callback().Delete().Before("gorm:delete").Register("surreal:edge_assoc_replace", edgeAssocReplaceCallback)
 	db.Callback().Delete().Replace("gorm:delete", DeleteCallback)
+
+	// Row (used by Association.Count)
+	db.Callback().Row().Before("gorm:row").Register("surreal:edge_assoc_count", edgeAssocCountCallback)
 
 	// Query
 	db.Callback().Query().Before("gorm:query").Register("surreal:handle_preload", handlePreloadAsFetch)
@@ -54,7 +59,6 @@ func handlePreloadAsFetch(db *gorm.DB) {
 						// FindEdgeTable handles both exact match and pluralized form so that
 						// many2many:wishlist and many2many:wishlists both work.
 						if registeredEdge, found := dialector.FindEdgeTable(rel.JoinTable.Table); found {
-							// Build: ->edgeTable->relatedTable AS fieldName
 							relatedTable := ""
 							if rel.FieldSchema != nil {
 								relatedTable = rel.FieldSchema.Table
@@ -63,8 +67,30 @@ func handlePreloadAsFetch(db *gorm.DB) {
 							}
 							// AS alias must match the Go field name (case-insensitive for json.Unmarshal).
 							fieldAlias := db.NamingStrategy.ColumnName("", name)
-							graphFields = append(graphFields, fmt.Sprintf("->%s->%s AS %s",
-								registeredEdge, relatedTable, fieldAlias))
+
+							// Determine traversal direction.
+							// In a SurrealDB edge: RELATE in->edge->out.
+							// • If the owning model is the "in" side → forward:  ->edge->relatedTable
+							// • If the owning model is the "out" side → reverse: <-edge<-relatedTable
+							forward := true
+							if rel.FieldSchema != nil && db.Statement.Schema != nil {
+								for _, ref := range rel.References {
+									if ref.OwnPrimaryKey {
+										if ref.ForeignKey != nil && ref.ForeignKey.DBName == "out" {
+											forward = false
+										}
+										break
+									}
+								}
+							}
+
+							var expr string
+							if forward {
+								expr = fmt.Sprintf("->%s->%s AS %s", registeredEdge, relatedTable, fieldAlias)
+							} else {
+								expr = fmt.Sprintf("<-%s<-%s AS %s", registeredEdge, relatedTable, fieldAlias)
+							}
+							graphFields = append(graphFields, expr)
 							continue
 						}
 					}
@@ -808,77 +834,136 @@ func UpdateCallback(db *gorm.DB) {
 }
 
 func DeleteCallback(db *gorm.DB) {
-	if db.Error == nil {
-		if db.Statement.Schema != nil {
-			for _, c := range db.Statement.Schema.DeleteClauses {
-				db.Statement.AddClause(c)
-			}
-		}
-
-		if db.Statement.SQL.Len() == 0 {
-			db.Statement.SQL.Grow(100)
-
-			// Soft Delete check
-			if db.Statement.Schema != nil && db.Statement.Schema.LookUpField("DeletedAt") != nil && !db.Statement.Unscoped {
-				db.Statement.AddClauseIfNotExists(clause.Update{}) // Switch to UPDATE
-
-				// Handle RecordID for soft delete update too if needed
-				if model, ok := db.Statement.Model.(TypesM.Identifiable); ok {
-					// Overwrite the UPDATE clause usually added by AddClauseIfNotExists(clause.Update{}) above?
-					// AddClauseIfNotExists won't add if exists. GORM doesn't default add UPDATE clause before this?
-					// Actually DeleteCallback construction is manual here too.
-
-					// Let's replace the clause if provided.
-					// Actually we just added clause.Update{}.
-					// Ideally we should do same logic as UpdateCallback for Soft Delete target.
-
-					// Re-doing the AddClause logic:
-					// Check existing clauses map?
-					// No, we are building it now.
-
-					// Note: The previous code just did `db.Statement.AddClauseIfNotExists(clause.Update{})`.
-					// This meant Soft Delete uses `UPDATE table`.
-					// Using `UPDATE table` is fine for SurrealDB IF `executeSQL` patched it.
-					// But we are removing `executeSQL` patch.
-					// SO WE MUST FIX DELETE CALLBACK TOO if it uses UPDATE for Soft Delete.
-
-					// Let's fix Soft Delete Update target:
-					db.Statement.Clauses["UPDATE"] = clause.Clause{
-						Name:       "UPDATE",
-						Expression: clause.Expr{SQL: model.GetID().String()},
-					}
-				}
-
-				db.Statement.AddClause(clause.Set{
-					{Column: clause.Column{Name: "deleted_at"}, Value: time.Now()},
-				})
-				db.Statement.BuildClauses = []string{"UPDATE", "SET", "WHERE"}
-			} else {
-				db.Statement.AddClauseIfNotExists(clause.Delete{})
-				db.Statement.AddClauseIfNotExists(clause.From{})
-				db.Statement.BuildClauses = []string{"DELETE", "FROM", "WHERE"}
-			}
-
-			db.Statement.AddClauseIfNotExists(clause.Where{})
-		}
-
-		// Build SQL
-		db.Statement.Build(db.Statement.BuildClauses...)
-
-		executeSQL(db)
+	if db.Error != nil {
+		return
 	}
+
+	// If this is a direct db.Delete(&edgeRecord) call, handle it via the SDK.
+	dialector := db.Dialector.(*Dialector)
+	if db.Statement.Schema != nil {
+		for _, c := range db.Statement.Schema.DeleteClauses {
+			db.Statement.AddClause(c)
+		}
+	}
+
+	// Detect an edge model (implements EdgeRelation) being deleted directly.
+	rv := db.Statement.ReflectValue
+	for rv.Kind() == reflect.Pointer {
+		rv = rv.Elem()
+	}
+	if rv.IsValid() && rv.CanAddr() {
+		if edge, ok := rv.Addr().Interface().(localModels.EdgeRelation); ok {
+			if model, ok := db.Statement.Model.(TypesM.Identifiable); ok && model.GetID() != nil {
+				// Hard-delete the edge record by ID
+				recID := model.GetID()
+				results, err := surrealdb.Query[interface{}](
+					db.Statement.Context, dialector.Conn,
+					"DELETE $id",
+					map[string]interface{}{"id": &recID.RecordID},
+				)
+				if err != nil {
+					db.AddError(err)
+					return
+				}
+				if len(*results) > 0 && (*results)[0].Status != "OK" {
+					db.AddError(fmt.Errorf("surrealdb delete edge error: %v", (*results)[0]))
+					return
+				}
+				db.RowsAffected = 1
+				_ = edge // suppress unused warning
+				return
+			}
+		}
+	}
+
+	if db.Statement.SQL.Len() == 0 {
+		db.Statement.SQL.Grow(100)
+
+		// Soft Delete check
+		if db.Statement.Schema != nil && db.Statement.Schema.LookUpField("DeletedAt") != nil && !db.Statement.Unscoped {
+			db.Statement.AddClauseIfNotExists(clause.Update{}) // Switch to UPDATE
+
+			if model, ok := db.Statement.Model.(TypesM.Identifiable); ok {
+				db.Statement.Clauses["UPDATE"] = clause.Clause{
+					Name:       "UPDATE",
+					Expression: clause.Expr{SQL: model.GetID().String()},
+				}
+			}
+
+			db.Statement.AddClause(clause.Set{
+				{Column: clause.Column{Name: "deleted_at"}, Value: time.Now()},
+			})
+			db.Statement.BuildClauses = []string{"UPDATE", "SET", "WHERE"}
+		} else {
+			db.Statement.AddClauseIfNotExists(clause.Delete{})
+			db.Statement.AddClauseIfNotExists(clause.From{})
+			db.Statement.BuildClauses = []string{"DELETE", "FROM", "WHERE"}
+		}
+
+		db.Statement.AddClauseIfNotExists(clause.Where{})
+	}
+
+	// Build SQL
+	db.Statement.Build(db.Statement.BuildClauses...)
+
+	executeSQL(db)
 }
 
 func executeSQL(db *gorm.DB) {
 	dialector := db.Dialector.(*Dialector)
 	sql := db.Statement.SQL.String()
 
+	// If this is an edge table operation, map the table name to its canonical form
+	// (e.g. many2many:wishlist -> wishlists)
+	actualTable := db.Statement.Table
+	if actualTable != "" {
+		if canonical, ok := dialector.FindEdgeTable(actualTable); ok {
+			sql = strings.ReplaceAll(sql, fmt.Sprintf("`%s`", actualTable), fmt.Sprintf("`%s`", canonical))
+			sql = strings.ReplaceAll(sql, fmt.Sprintf("FROM %s", actualTable), fmt.Sprintf("FROM `%s`", canonical))
+			actualTable = canonical
+		}
+	}
+
+	// Replace standard SQL <> with SurrealDB !=
+	sql = strings.ReplaceAll(sql, "<>", "!=")
+
+	// Hack: Rewrite association count queries for edge tables
+	if strings.Contains(sql, "SELECT count(*)") && strings.Contains(sql, " JOIN ") {
+		parts := strings.Split(sql, " JOIN ")
+		if len(parts) > 1 {
+			joinPart := strings.TrimSpace(parts[1])
+			tableName := strings.Split(joinPart, " ")[0]
+			tableName = strings.ReplaceAll(tableName, "`", "")
+			
+			if canonical, ok := dialector.FindEdgeTable(tableName); ok {
+				var ownerField string
+				if strings.Contains(sql, ".`in` = ") {
+					ownerField = "in"
+				} else if strings.Contains(sql, ".`out` = ") {
+					ownerField = "out"
+				}
+				if ownerField != "" {
+					idx := strings.Index(sql, ".`"+ownerField+"` = $p")
+					if idx != -1 {
+						pstart := idx + len(".`"+ownerField+"` = ")
+						pend := pstart
+						for pend < len(sql) && (sql[pend] == '$' || sql[pend] == 'p' || (sql[pend] >= '0' && sql[pend] <= '9')) {
+							pend++
+						}
+						param := sql[pstart:pend]
+						sql = fmt.Sprintf("SELECT count() FROM `%s` WHERE `%s` = %s GROUP ALL", canonical, ownerField, param)
+					}
+				}
+			}
+		}
+	}
+
 	// Hack: Remove table prefixes from SQL
-	if db.Statement.Table != "" {
-		quotedTable := fmt.Sprintf("`%s`.", db.Statement.Table)
+	if actualTable != "" {
+		quotedTable := fmt.Sprintf("`%s`.", actualTable)
 		sql = strings.ReplaceAll(sql, quotedTable, "")
 		// Also handle "table." without backticks just in case if users write raw sql
-		sql = strings.ReplaceAll(sql, fmt.Sprintf("%s.", db.Statement.Table), "")
+		sql = strings.ReplaceAll(sql, fmt.Sprintf("%s.", actualTable), "")
 	}
 
 	// Hack: Remove IS NULL check for Soft Delete compatibility
@@ -887,9 +972,10 @@ func executeSQL(db *gorm.DB) {
 	// Filter out "id" from UPDATE SET clause (SurrealDB error: specified record conflict)
 	if strings.HasPrefix(strings.TrimSpace(sql), "UPDATE") {
 		// Clean up soft delete checks for surrealdb specific syntax (IS NONE)
-		whatTable := db.Statement.Table
 		sql = strings.ReplaceAll(sql, "`deleted_at` IS NULL", "(`deleted_at` IS NULL OR `deleted_at` IS NONE)")
-		sql = strings.ReplaceAll(sql, fmt.Sprintf("`%s`.`deleted_at` IS NULL", whatTable), fmt.Sprintf("(`%s`.`deleted_at` IS NULL OR `%s`.`deleted_at` IS NONE)", whatTable, whatTable))
+		if actualTable != "" {
+			sql = strings.ReplaceAll(sql, fmt.Sprintf("`%s`.`deleted_at` IS NULL", actualTable), fmt.Sprintf("(`%s`.`deleted_at` IS NULL OR `%s`.`deleted_at` IS NONE)", actualTable, actualTable))
+		}
 	}
 
 	vars := db.Statement.Vars
@@ -931,8 +1017,6 @@ func executeSQL(db *gorm.DB) {
 		params[fmt.Sprintf("p%d", i+1)] = v
 	}
 
-	// Debug params
-	// fmt.Printf("DEBUG QUERY: %s\nPARAMS: %+v\n", sql, params)
 	// Execute
 	results, err := surrealdb.Query[interface{}](db.Statement.Context, dialector.Conn, sql, params)
 	if err != nil {
@@ -998,6 +1082,19 @@ func executeSQL(db *gorm.DB) {
 				}
 			}
 
+			// Custom mapping for Count queries where Dest is an integer pointer
+			// and SurrealDB returns {"count": X}
+			if destVal.CanSet() && (destVal.Kind() == reflect.Int64 || destVal.Kind() == reflect.Int) {
+				if m, ok := dataToUnmarshal.(map[string]interface{}); ok {
+					if c, ok := m["count"]; ok {
+						if cFloat, ok := c.(float64); ok {
+							destVal.SetInt(int64(cFloat))
+							return
+						}
+					}
+				}
+			}
+
 			bytes, err := json.Marshal(dataToUnmarshal)
 			if err == nil {
 				// Debug JSON
@@ -1031,5 +1128,267 @@ func executeSQL(db *gorm.DB) {
 				}
 			}
 		}
+	}
+}
+
+// --------------------------------------------------------------------------
+// Edge Association callbacks
+// --------------------------------------------------------------------------
+
+// edgeAssocDeleteCallback handles Association("X").Delete(&y) for edge tables.
+// GORM routes association deletes through the delete pipeline with a special
+// flag in Statement.Settings ("gorm:association:delete"). We detect this and,
+// if the join table is a registered edge, delete the matching edge records via
+// DELETE FROM <edgeTable> WHERE in = $in AND out = $out.
+func edgeAssocDeleteCallback(db *gorm.DB) {
+	if db.Error != nil {
+		return
+	}
+	// GORM sets this key when running association delete
+	assocMode, _ := db.Statement.Settings.Load("gorm:association:delete")
+	if assocMode == nil {
+		return
+	}
+	dialector := db.Dialector.(*Dialector)
+	if db.Statement.Schema == nil {
+		return
+	}
+	for _, rel := range db.Statement.Schema.Relationships.Many2Many {
+		if rel.JoinTable == nil {
+			continue
+		}
+		registeredEdge, ok := dialector.FindEdgeTable(rel.JoinTable.Table)
+		if !ok {
+			continue
+		}
+		// Get owner primary key (in)
+		rv := db.Statement.ReflectValue
+		for rv.Kind() == reflect.Pointer {
+			rv = rv.Elem()
+		}
+		var inID *sdkModels.RecordID
+		for _, ref := range rel.References {
+			if ref.OwnPrimaryKey {
+				v, isZero := ref.PrimaryKey.ValueOf(db.Statement.Context, rv)
+				if !isZero {
+					inID = extractRecordID(v)
+				}
+				break
+			}
+		}
+		if inID == nil {
+			continue
+		}
+		// Collect out IDs from Statement.Dest (the records being disassociated)
+		destVal := reflect.ValueOf(db.Statement.Dest)
+		for destVal.Kind() == reflect.Pointer {
+			destVal = destVal.Elem()
+		}
+		var outIDs []*sdkModels.RecordID
+		if destVal.Kind() == reflect.Slice {
+			for i := 0; i < destVal.Len(); i++ {
+				elem := destVal.Index(i)
+				for elem.Kind() == reflect.Pointer {
+					elem = elem.Elem()
+				}
+				for _, ref := range rel.References {
+					if !ref.OwnPrimaryKey && ref.PrimaryValue == "" {
+						v, isZero := ref.PrimaryKey.ValueOf(db.Statement.Context, elem)
+						if !isZero {
+							if rid := extractRecordID(v); rid != nil {
+								outIDs = append(outIDs, rid)
+							}
+						}
+						break
+					}
+				}
+			}
+		} else if destVal.IsValid() {
+			for _, ref := range rel.References {
+				if !ref.OwnPrimaryKey && ref.PrimaryValue == "" {
+					v, isZero := ref.PrimaryKey.ValueOf(db.Statement.Context, destVal)
+					if !isZero {
+						if rid := extractRecordID(v); rid != nil {
+							outIDs = append(outIDs, rid)
+						}
+					}
+					break
+				}
+			}
+		}
+		for _, outID := range outIDs {
+			results, err := surrealdb.Query[interface{}](
+				db.Statement.Context, dialector.Conn,
+				fmt.Sprintf("DELETE %s WHERE in = $in AND out = $out", registeredEdge),
+				map[string]interface{}{"in": inID, "out": outID},
+			)
+			if err != nil {
+				db.AddError(err)
+				return
+			}
+			if len(*results) > 0 && (*results)[0].Status != "OK" {
+				db.AddError(fmt.Errorf("edge assoc delete error: %v", (*results)[0]))
+				return
+			}
+		}
+		// Mark handled so DeleteCallback skips normal SQL
+		db.Statement.SQL.WriteString("-- edge assoc delete handled")
+		return
+	}
+}
+
+// edgeAssocReplaceCallback handles Association("X").Replace(&y) for edge tables.
+// GORM signals a replace via "gorm:association:replace" in Statement.Settings.
+// We delete all existing edges for the owner then insert the new ones.
+func edgeAssocReplaceCallback(db *gorm.DB) {
+	if db.Error != nil {
+		return
+	}
+	assocMode, _ := db.Statement.Settings.Load("gorm:association:replace")
+	if assocMode == nil {
+		return
+	}
+	dialector := db.Dialector.(*Dialector)
+	if db.Statement.Schema == nil {
+		return
+	}
+	for _, rel := range db.Statement.Schema.Relationships.Many2Many {
+		if rel.JoinTable == nil {
+			continue
+		}
+		registeredEdge, ok := dialector.FindEdgeTable(rel.JoinTable.Table)
+		if !ok {
+			continue
+		}
+		rv := db.Statement.ReflectValue
+		for rv.Kind() == reflect.Pointer {
+			rv = rv.Elem()
+		}
+		var inID *sdkModels.RecordID
+		for _, ref := range rel.References {
+			if ref.OwnPrimaryKey {
+				v, isZero := ref.PrimaryKey.ValueOf(db.Statement.Context, rv)
+				if !isZero {
+					inID = extractRecordID(v)
+				}
+				break
+			}
+		}
+		if inID == nil {
+			continue
+		}
+		// Delete all existing edges for this owner
+		results, err := surrealdb.Query[interface{}](
+			db.Statement.Context, dialector.Conn,
+			fmt.Sprintf("DELETE %s WHERE in = $in", registeredEdge),
+			map[string]interface{}{"in": inID},
+		)
+		if err != nil {
+			db.AddError(err)
+			return
+		}
+		if len(*results) > 0 && (*results)[0].Status != "OK" {
+			db.AddError(fmt.Errorf("edge assoc replace (delete phase) error: %v", (*results)[0]))
+			return
+		}
+		// Insert new edges from Statement.Dest
+		destVal := reflect.ValueOf(db.Statement.Dest)
+		for destVal.Kind() == reflect.Pointer {
+			destVal = destVal.Elem()
+		}
+		var newOutIDs []*sdkModels.RecordID
+		if destVal.Kind() == reflect.Slice {
+			for i := 0; i < destVal.Len(); i++ {
+				elem := destVal.Index(i)
+				for elem.Kind() == reflect.Pointer {
+					elem = elem.Elem()
+				}
+				for _, ref := range rel.References {
+					if !ref.OwnPrimaryKey && ref.PrimaryValue == "" {
+						v, isZero := ref.PrimaryKey.ValueOf(db.Statement.Context, elem)
+						if !isZero {
+							if rid := extractRecordID(v); rid != nil {
+								newOutIDs = append(newOutIDs, rid)
+							}
+						}
+						break
+					}
+				}
+			}
+		}
+		for _, outID := range newOutIDs {
+			rel2 := &surrealdb.Relationship{
+				In:       *inID,
+				Out:      *outID,
+				Relation: sdkModels.Table(registeredEdge),
+			}
+			if _, err := surrealdb.InsertRelation[interface{}](db.Statement.Context, dialector.Conn, rel2); err != nil {
+				db.AddError(err)
+				return
+			}
+		}
+		db.Statement.SQL.WriteString("-- edge assoc replace handled")
+		return
+	}
+}
+
+// edgeAssocCountCallback handles Association("X").Count() for edge tables.
+// GORM routes this through the Row pipeline. We detect the edge table and
+// execute SELECT count() FROM <edgeTable> WHERE in = $in GROUP ALL.
+func edgeAssocCountCallback(db *gorm.DB) {
+	if db.Error != nil {
+		return
+	}
+	_, isAssocCount := db.Statement.Settings.Load("gorm:association:count")
+	if !isAssocCount {
+		return
+	}
+	dialector := db.Dialector.(*Dialector)
+	if db.Statement.Schema == nil {
+		return
+	}
+	for _, rel := range db.Statement.Schema.Relationships.Many2Many {
+		if rel.JoinTable == nil {
+			continue
+		}
+		registeredEdge, ok := dialector.FindEdgeTable(rel.JoinTable.Table)
+		if !ok {
+			continue
+		}
+		rv := db.Statement.ReflectValue
+		for rv.Kind() == reflect.Pointer {
+			rv = rv.Elem()
+		}
+		var inID *sdkModels.RecordID
+		for _, ref := range rel.References {
+			if ref.OwnPrimaryKey {
+				v, isZero := ref.PrimaryKey.ValueOf(db.Statement.Context, rv)
+				if !isZero {
+					inID = extractRecordID(v)
+				}
+				break
+			}
+		}
+		if inID == nil {
+			return
+		}
+		type countResult struct {
+			Count int64 `json:"count"`
+		}
+		results, err := surrealdb.Query[[]countResult](
+			db.Statement.Context, dialector.Conn,
+			fmt.Sprintf("SELECT count() FROM %s WHERE in = $in GROUP ALL", registeredEdge),
+			map[string]interface{}{"in": inID},
+		)
+		if err != nil {
+			db.AddError(err)
+			return
+		}
+		if len(*results) > 0 && (*results)[0].Status == "OK" && len((*results)[0].Result) > 0 {
+			db.RowsAffected = (*results)[0].Result[0].Count
+		}
+		// Write sentinel so gorm:row knows we handled it
+		db.Statement.SQL.WriteString("-- edge count handled")
+		return
 	}
 }

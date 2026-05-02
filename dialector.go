@@ -26,25 +26,37 @@ type Dialector struct {
 	gorm.Dialector
 	DSN        string
 	Conn       *surrealdb.DB
-	edgeTables sync.Map // map[string]bool — table names that are SurrealDB RELATE edges
+	edgeTables sync.Map // map[string]string — canonical edge table names; key = any alias, value = canonical name
 }
 
 // RegisterEdgeTable marks a table name as a SurrealDB graph edge table.
+// It registers the canonical name as well as its de-pluralized form (without
+// trailing "s") so that many2many tags that omit the trailing "s" still resolve
+// correctly (e.g. many2many:wishlist → wishlists).
 func (d *Dialector) RegisterEdgeTable(table string) {
-	d.edgeTables.Store(table, true)
+	// Store canonical name → canonical name
+	d.edgeTables.Store(table, table)
+	// Also store singular alias → canonical name (strip trailing "s" if present)
+	if strings.HasSuffix(table, "s") {
+		singular := strings.TrimSuffix(table, "s")
+		d.edgeTables.Store(singular, table)
+	}
 }
 
-// FindEdgeTable returns the registered edge table name that best matches the
-// given name. It checks exact match first, then the pluralized form (table+"s"),
-// to handle cases where a many2many tag uses the singular form of the table name.
+// FindEdgeTable returns the canonical registered edge table name that best
+// matches the given name. It checks:
+//  1. Exact match (the name itself is registered or is an alias)
+//  2. Pluralized form (name+"s") as canonical
+//
 // Returns ("", false) if no match is found.
 func (d *Dialector) FindEdgeTable(table string) (string, bool) {
-	if _, ok := d.edgeTables.Load(table); ok {
-		return table, true
+	if canonical, ok := d.edgeTables.Load(table); ok {
+		return canonical.(string), true
 	}
+	// Try name+"s" as canonical (e.g. caller passes "wishlist", we try "wishlists")
 	plural := table + "s"
-	if _, ok := d.edgeTables.Load(plural); ok {
-		return plural, true
+	if canonical, ok := d.edgeTables.Load(plural); ok {
+		return canonical.(string), true
 	}
 	return "", false
 }
@@ -59,7 +71,6 @@ func Open(dsn string) gorm.Dialector {
 	return &Dialector{DSN: dsn}
 }
 
-var REALDBONLYTEST *surrealdb.DB
 
 func (dialector *Dialector) Name() string {
 	return "surrealdb"
@@ -113,7 +124,6 @@ func (dialector *Dialector) Initialize(db *gorm.DB) (err error) {
 
 		dialector.Conn = conn
 		db.ConnPool = dialector
-		REALDBONLYTEST = conn
 	}
 
 	RegisterCallbacks(db)
