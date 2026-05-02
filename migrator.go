@@ -3,7 +3,9 @@ package surrealdb
 import (
 	"context"
 	"fmt"
+	"reflect"
 
+	localModels "github.com/dailaim/surrealdb-gorm/models"
 	"github.com/surrealdb/surrealdb.go"
 	"gorm.io/gorm"
 	"gorm.io/gorm/migrator"
@@ -20,12 +22,29 @@ func (m Migrator) AutoMigrate(dst ...interface{}) error {
 		return err
 	}
 
+	edgeRelType := reflect.TypeOf((*localModels.EdgeRelation)(nil)).Elem()
+
 	for _, value := range dst {
 		var tableName string
+		var modelType reflect.Type
 		m.RunWithValue(value, func(stmt *gorm.Statement) error {
 			tableName = stmt.Table
+			if stmt.Schema != nil {
+				modelType = stmt.Schema.ModelType
+			}
 			return nil
 		})
+
+		// Always register edge tables in the in-memory registry so that
+		// callbacks can detect them even when the DB table already exists
+		// from a previous run.
+		if modelType != nil {
+			if modelType.Implements(edgeRelType) || reflect.PointerTo(modelType).Implements(edgeRelType) {
+				if d, ok := m.DB.Dialector.(*Dialector); ok {
+					d.RegisterEdgeTable(tableName)
+				}
+			}
+		}
 
 		if _, exists := existingTables[tableName]; !exists {
 			if err := m.CreateTable(value); err != nil {
@@ -86,23 +105,37 @@ func (m Migrator) getExistingTables() (map[string]string, error) {
 func (m Migrator) CreateTable(models ...interface{}) error {
 	for _, model := range models {
 		if err := m.RunWithValue(model, func(stmt *gorm.Statement) error {
-			// Prepare DEFINE TABLE statement
-			// SurrealDB uses DEFINE TABLE, not CREATE TABLE.
-			// Using SCHEMALESS mode for flexibility as GORM AutoMigrate is dynamic.
 			tableName := stmt.Schema.Table
-			// sql := fmt.Sprintf("DEFINE TABLE %s SCHEMALESS", tableName)
 
-			// We should just define the table as SCHEMALESS first
-			if err := m.DB.Exec(fmt.Sprintf("DEFINE TABLE %s SCHEMALESS", tableName)).Error; err != nil {
+			// Detect if the model is a SurrealDB graph edge (embeds Edge[T,U]).
+			// We check both the value and pointer type.
+			isEdge := false
+			edgeRelType := reflect.TypeOf((*localModels.EdgeRelation)(nil)).Elem()
+			mt := stmt.Schema.ModelType
+			if mt.Implements(edgeRelType) || reflect.PointerTo(mt).Implements(edgeRelType) {
+				isEdge = true
+			}
+
+			var defineSQL string
+			if isEdge {
+				// SurrealDB TYPE RELATION creates a proper graph edge table.
+				defineSQL = fmt.Sprintf("DEFINE TABLE %s TYPE RELATION SCHEMALESS", tableName)
+			} else {
+				defineSQL = fmt.Sprintf("DEFINE TABLE %s SCHEMALESS", tableName)
+			}
+
+			if err := m.DB.Exec(defineSQL).Error; err != nil {
 				return err
 			}
 
-			// For now, we skip detailed Field definitions because GORM's AutoMigrate
-			// iterates all fields and tries to call DataTypeOf.
-			// If DataTypeOf returns "array" or "object", fine.
-			// If "unsupported", we error.
+			// Register edge table in the dialector registry so callbacks can
+			// route association inserts to InsertRelation.
+			if isEdge {
+				if d, ok := m.DB.Dialector.(*Dialector); ok {
+					d.RegisterEdgeTable(tableName)
+				}
+			}
 
-			// Actually, we can just return, effectively doing "DEFINE TABLE table SCHEMALESS"
 			return nil
 		}); err != nil {
 			return err

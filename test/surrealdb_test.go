@@ -5,12 +5,16 @@ import (
 	"testing" // Ensure time is imported
 	"time"
 
+	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
 	"github.com/dailaim/surrealdb-gorm"
 	"github.com/dailaim/surrealdb-gorm/models"
-	"gorm.io/gorm"
 )
+
+func getDialector(db *gorm.DB) *surrealdb.Dialector {
+	return db.ConnPool.(*surrealdb.Dialector)
+}
 
 type User struct {
 	models.Schemaless
@@ -24,7 +28,7 @@ func (u *User) BeforeDelete(tx *gorm.DB) (err error) {
 }
 
 func setupDB(t *testing.T) *gorm.DB {
-	dsn := "wss://shiny-ocean-06dfnpnrpprgdf3fmb8e7vtpuo.aws-use1.surreal.cloud/rpc?namespace=test&database=test&username=root&password=root"
+	dsn := "ws://10.89.1.1:8000/rpc?namespace=test&database=test&username=root&password=root"
 	db, err := gorm.Open(surrealdb.Open(dsn), &gorm.Config{
 		SkipDefaultTransaction: true,
 		Logger:                 logger.Default.LogMode(logger.Warn),

@@ -8,13 +8,14 @@ import (
 	"strings"
 	"time"
 
-	TypesM "github.com/dailaim/surrealdb-gorm/types"
 	"github.com/surrealdb/surrealdb.go"
-	"github.com/surrealdb/surrealdb.go/pkg/models"
+	sdkModels "github.com/surrealdb/surrealdb.go/pkg/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/dailaim/surrealdb-gorm/clauses"
+	localModels "github.com/dailaim/surrealdb-gorm/models"
+	TypesM "github.com/dailaim/surrealdb-gorm/types"
 )
 
 func RegisterCallbacks(db *gorm.DB) {
@@ -37,57 +38,65 @@ func handlePreloadAsFetch(db *gorm.DB) {
 	if db.Error != nil {
 		return
 	}
-	// Convert Preloads to FETCH
+	// Convert Preloads to FETCH or graph-traversal SELECT expressions.
 	if len(db.Statement.Preloads) > 0 {
-		var fields []string
+		dialector, _ := db.Dialector.(*Dialector)
+
+		var fetchFields []string
+		var graphFields []string
+
 		for name := range db.Statement.Preloads {
-			// Handle nested paths (e.g., "Next.Next")
+			// Check if this is a many2many whose join table is an edge table.
+			// If so, emit a graph-traversal SELECT expression instead of FETCH.
+			if dialector != nil && db.Statement.Schema != nil {
+				if rel, ok := db.Statement.Schema.Relationships.Relations[name]; ok {
+					if rel.Type == "many_to_many" && rel.JoinTable != nil {
+						// FindEdgeTable handles both exact match and pluralized form so that
+						// many2many:wishlist and many2many:wishlists both work.
+						if registeredEdge, found := dialector.FindEdgeTable(rel.JoinTable.Table); found {
+							// Build: ->edgeTable->relatedTable AS fieldName
+							relatedTable := ""
+							if rel.FieldSchema != nil {
+								relatedTable = rel.FieldSchema.Table
+							} else {
+								relatedTable = db.NamingStrategy.TableName(name)
+							}
+							// AS alias must match the Go field name (case-insensitive for json.Unmarshal).
+							fieldAlias := db.NamingStrategy.ColumnName("", name)
+							graphFields = append(graphFields, fmt.Sprintf("->%s->%s AS %s",
+								registeredEdge, relatedTable, fieldAlias))
+							continue
+						}
+					}
+				}
+			}
+
+			// Regular preload → FETCH
 			parts := strings.Split(name, ".")
 			var dbParts []string
-
-			// We try to walk the schema if possible, but for Link[T] generic relations,
-			// GORM might not have the full Relationship Schema loaded on the field.
-			// We start with the current Statement Schema.
 			currentSchema := db.Statement.Schema
 
 			for _, part := range parts {
 				mapped := part
-				// Try lookup in current schema
 				if currentSchema != nil {
-					if field := currentSchema.LookUpField(part); field != nil {
+					if field := currentSchema.LookUpField(part); field != nil && field.DBName != "" {
 						mapped = field.DBName
-						// Attempt to switch schema for next part if relation exists
 						if field.Schema != nil {
 							currentSchema = field.Schema
 						} else {
-							// Check if valid Relation (rare for simple structural structs without tags)
-							// If not found, we lose context for next parts.
-							// We can nullify currentSchema to stop trying LookUpField
-							// or we can try to guess if it's a struct field.
-							// For now, fallback to NamingStrategy or just part.
-
-							// If we lost schema track (e.g. Link[T]), we rely on NamingStrategy
 							currentSchema = nil
 						}
 					}
 				}
-
-				// Final Fallback: use NamingStrategy to guess DBName (usually snake_case)
-				// if we couldn't resolve it via Schema or if Schema was nil.
 				if mapped == part {
 					mapped = db.NamingStrategy.ColumnName("", part)
 				}
-
+				if mapped == "" {
+					continue // skip unmappable parts (e.g. many2many fields with no DBName)
+				}
 				dbParts = append(dbParts, mapped)
 			}
 
-			// Expand prefixes to ensure all intermediate nodes are fetched
-			// path: next.next.next
-			// -> next
-			// -> next.next
-			// -> next.next.next
-
-			// Rebuild clean path from dbParts
 			var currentPath string
 			for i, dbPart := range dbParts {
 				if i == 0 {
@@ -95,22 +104,25 @@ func handlePreloadAsFetch(db *gorm.DB) {
 				} else {
 					currentPath = currentPath + "." + dbPart
 				}
-				fields = append(fields, currentPath)
+				fetchFields = append(fetchFields, currentPath)
 			}
 		}
 
-		// Deduplicate fields
+		// Deduplicate FETCH fields
 		seen := make(map[string]bool)
-		var uniqueFields []string
-		for _, f := range fields {
+		var uniqueFetch []string
+		for _, f := range fetchFields {
 			if !seen[f] {
 				seen[f] = true
-				uniqueFields = append(uniqueFields, f)
+				uniqueFetch = append(uniqueFetch, f)
 			}
 		}
 
-		if len(uniqueFields) > 0 {
-			db.Statement.AddClause(clauses.Fetch{Fields: uniqueFields})
+		if len(uniqueFetch) > 0 {
+			db.Statement.AddClause(clauses.Fetch{Fields: uniqueFetch})
+		}
+		if len(graphFields) > 0 {
+			db.Statement.AddClause(clauses.GraphSelect{Fields: graphFields})
 		}
 		// Clear Preloads so GORM doesn't try to load them again
 		db.Statement.Preloads = nil
@@ -137,14 +149,124 @@ func CreateCallback(db *gorm.DB) {
 	}
 
 	reflectValue := db.Statement.ReflectValue
+
+	// Detect Edge models (embed models.Edge[T,U]) and route through InsertRelation
+	destVal := reflectValue
+	if destVal.Kind() == reflect.Pointer {
+		destVal = destVal.Elem()
+	}
+
+	// Path A: struct explicitly implements EdgeRelation (e.g. manual db.Create(&Wishlist{...}))
+	if destVal.IsValid() && destVal.CanAddr() {
+		if edge, ok := destVal.Addr().Interface().(localModels.EdgeRelation); ok {
+			inID := edge.EdgeIn()
+			outID := edge.EdgeOut()
+			if inID == nil || outID == nil {
+				db.AddError(errors.New("edge model must have both In and Out IDs set"))
+				return
+			}
+
+			// Collect extra fields (anything that's not in/out/id/timestamps) into Data.
+			extraData := make(map[string]interface{})
+			if db.Statement.Schema != nil {
+				skipFields := map[string]bool{"id": true, "in": true, "out": true,
+					"created_at": true, "updated_at": true, "deleted_at": true}
+				for _, field := range db.Statement.Schema.Fields {
+					if field.DBName == "" || skipFields[field.DBName] {
+						continue
+					}
+					// Skip embedded/anonymous struct fields (e.g. EdgeSchemaless, Schemaless).
+					// Their promoted children are already included as individual fields.
+					if field.StructField.Anonymous {
+						continue
+					}
+					val, isZero := field.ValueOf(db.Statement.Context, reflectValue)
+					if !isZero {
+						extraData[field.DBName] = val
+					}
+				}
+			}
+
+			rel := &surrealdb.Relationship{
+				In:       inID.RecordID,
+				Out:      outID.RecordID,
+				Relation: sdkModels.Table(db.Statement.Table),
+				Data:     extraData,
+			}
+			result, err := surrealdb.InsertRelation[interface{}](db.Statement.Context, dialector.Conn, rel)
+			if err != nil {
+				db.AddError(err)
+				return
+			}
+			if result != nil {
+				val := reflect.ValueOf(result)
+				if val.Kind() == reflect.Pointer {
+					val = val.Elem()
+				}
+				if val.Kind() == reflect.Interface {
+					val = val.Elem()
+				}
+				var single interface{}
+				if val.Kind() == reflect.Slice && val.Len() > 0 {
+					single = val.Index(0).Interface()
+				} else if val.IsValid() {
+					single = val.Interface()
+				}
+				if single != nil {
+					b, err := json.Marshal(single)
+					if err == nil {
+						_ = json.Unmarshal(b, db.Statement.Dest)
+					}
+				}
+			}
+			return
+		}
+	}
+
+	// Path B: GORM auto-generated join table struct (Association.Append for many2many edges).
+	// The struct is not Wishlist but an anonymous struct with two FK fields.
+	// Detect by checking if the target table is a registered edge table.
+	if registeredName, isEdge := dialector.FindEdgeTable(db.Statement.Table); isEdge && db.Statement.Schema != nil {
+		// Collect the two FK values in schema order — first FK = in, second FK = out.
+		var fkVals []*sdkModels.RecordID
+		for _, field := range db.Statement.Schema.Fields {
+			if field.DBName == "" || field.DBName == "id" {
+				continue
+			}
+			val, isZero := field.ValueOf(db.Statement.Context, reflectValue)
+			if isZero {
+				continue
+			}
+			if rid := extractRecordID(val); rid != nil {
+				fkVals = append(fkVals, rid)
+				if len(fkVals) == 2 {
+					break
+				}
+			}
+		}
+		if len(fkVals) == 2 {
+			rel := &surrealdb.Relationship{
+				In:       *fkVals[0],
+				Out:      *fkVals[1],
+				Relation: sdkModels.Table(registeredName),
+			}
+			if _, err := surrealdb.InsertRelation[interface{}](db.Statement.Context, dialector.Conn, rel); err != nil {
+				db.AddError(err)
+				return
+			}
+			db.RowsAffected = 1
+			return
+		}
+	}
+
 	if reflectValue.Kind() == reflect.Slice || reflectValue.Kind() == reflect.Array {
 		// Batch insert logic
 		// For simplicity, we assume generic Insert works or we iterate.
-		// models.Table just wraps string.
+		// sdkModels.Table just wraps string.
 		// Batch insert logic
 		// For simplicity, we assume generic Insert works or we iterate.
-		// models.Table just wraps string.
-		table := models.Table(db.Statement.Table)
+		// sdkModels.Table just wraps string.
+		table := sdkModels.Table(db.Statement.Table)
 
 		// Force JSON marshaling to generic map/slice to respect custom MarshalJSON (e.g. DeletedAt)
 		// because SDK might use CBOR or ignore MarshalJSON for structs.
@@ -167,7 +289,7 @@ func CreateCallback(db *gorm.DB) {
 	} else {
 		// Single insert
 		var whatTable = db.Statement.Table
-		var whatRecord *models.RecordID
+		var whatRecord *sdkModels.RecordID
 
 		// Handle Timestamps
 		if db.Statement.Schema != nil {
@@ -238,7 +360,7 @@ func CreateCallback(db *gorm.DB) {
 			// surrealdb.Update overwrites the record content, matching GORM Save semantics.
 			created, err = surrealdb.Update[interface{}](db.Statement.Context, dialector.Conn, *whatRecord, createData)
 		} else {
-			created, err = surrealdb.Create[interface{}](db.Statement.Context, dialector.Conn, models.Table(whatTable), createData)
+			created, err = surrealdb.Create[interface{}](db.Statement.Context, dialector.Conn, sdkModels.Table(whatTable), createData)
 		}
 
 		if err != nil {
@@ -251,17 +373,21 @@ func CreateCallback(db *gorm.DB) {
 		// Optimally we map `created` back to `db.Statement.Dest`
 		if created != nil {
 			// Unwrap array if needed
-			var dataToUnmarshal interface{} = created
 			val := reflect.ValueOf(created)
 			if val.Kind() == reflect.Pointer {
 				val = val.Elem()
 			}
+			// *interface{} unwraps to Interface kind; unwrap once more to reach concrete value
+			if val.Kind() == reflect.Interface {
+				val = val.Elem()
+			}
+			var dataToUnmarshal interface{}
 			if val.Kind() == reflect.Slice || val.Kind() == reflect.Array {
 				if val.Len() > 0 {
 					dataToUnmarshal = val.Index(0).Interface()
 				}
 			} else {
-				dataToUnmarshal = created
+				dataToUnmarshal = val.Interface()
 			}
 
 			// If Schema available, manually map back to respect GORM tags (DBName -> Field)
@@ -360,7 +486,31 @@ func QueryCallback(db *gorm.DB) {
 		db.Statement.BuildClauses = []string{"SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "LIMIT", "FOR", "INFO", "FETCH"}
 	}
 	if _, ok := db.Statement.Clauses["SELECT"]; !ok {
-		db.Statement.AddClause(clause.Select{Expression: clause.Expr{SQL: "*"}})
+		// If there are graph-traversal fields (from many2many edge preloads), include them in SELECT.
+		selectSQL := "*"
+		if gs, ok := db.Statement.Clauses["GRAPH_SELECT"]; ok {
+			if gsExpr, ok := gs.Expression.(clauses.GraphSelect); ok {
+				for _, f := range gsExpr.Fields {
+					selectSQL += ", " + f
+				}
+			}
+		}
+		db.Statement.AddClause(clause.Select{Expression: clause.Expr{SQL: selectSQL}})
+	} else if gs, ok := db.Statement.Clauses["GRAPH_SELECT"]; ok {
+		// SELECT already set (e.g. by GORM's First) – inject graph expressions into it.
+		if gsExpr, ok := gs.Expression.(clauses.GraphSelect); ok && len(gsExpr.Fields) > 0 {
+			extra := strings.Join(gsExpr.Fields, ", ")
+			selClause := db.Statement.Clauses["SELECT"]
+			if expr, ok := selClause.Expression.(clause.Select); ok {
+				if sqlExpr, ok := expr.Expression.(clause.Expr); ok {
+					expr.Expression = clause.Expr{SQL: sqlExpr.SQL + ", " + extra}
+				} else {
+					expr.Expression = clause.Expr{SQL: "*, " + extra}
+				}
+				selClause.Expression = expr
+				db.Statement.Clauses["SELECT"] = selClause
+			}
+		}
 	}
 	if _, ok := db.Statement.Clauses["FROM"]; !ok && db.Statement.Table != "" {
 		db.Statement.AddClause(clause.From{Tables: []clause.Table{{Name: db.Statement.Table}}})
@@ -384,7 +534,7 @@ func QueryCallback(db *gorm.DB) {
 func optimizeFindByID(db *gorm.DB) {
 	if len(db.Statement.Vars) >= 1 {
 		// Check if first var is RecordID
-		if _, ok := db.Statement.Vars[0].(*models.RecordID); ok {
+		if _, ok := db.Statement.Vars[0].(*sdkModels.RecordID); ok {
 			sql := db.Statement.SQL.String()
 			// Naive check: does it look like a find by ID?
 			// SELECT * FROM `users` WHERE `users`.`id` = $p1 ...
@@ -455,6 +605,81 @@ func optimizeFindByID(db *gorm.DB) {
 }
 
 func UpdateCallback(db *gorm.DB) {
+	// If this is a Many2Many update triggered by Association.Append, the model's
+	// relationship fields (e.g. Products) are already set in ReflectValue.
+	// Save edge join tables NOW before building the UPDATE SQL.
+	if db.Statement.Schema != nil && db.Error == nil {
+		dialector := db.Dialector.(*Dialector)
+		rv := db.Statement.ReflectValue
+		for rv.Kind() == reflect.Pointer {
+			rv = rv.Elem()
+		}
+		if rv.Kind() == reflect.Struct {
+			for _, rel := range db.Statement.Schema.Relationships.Many2Many {
+				if rel.JoinTable == nil {
+					continue
+				}
+				registeredEdge, ok := dialector.FindEdgeTable(rel.JoinTable.Table)
+				if !ok {
+					continue
+				}
+				// Get the value of the relationship field (e.g. Products slice)
+				fieldVal := rel.Field.ReflectValueOf(db.Statement.Context, rv)
+				if fieldVal.Kind() == reflect.Pointer {
+					fieldVal = fieldVal.Elem()
+				}
+				if fieldVal.Kind() != reflect.Slice || fieldVal.Len() == 0 {
+					continue
+				}
+
+				// Get the owner's primary key value (the "in" side)
+				var inID *sdkModels.RecordID
+				for _, ref := range rel.References {
+					if ref.OwnPrimaryKey {
+						v, isZero := ref.PrimaryKey.ValueOf(db.Statement.Context, rv)
+						if !isZero {
+							inID = extractRecordID(v)
+						}
+						break
+					}
+				}
+				if inID == nil {
+					continue
+				}
+
+				// Iterate the related records (the "out" side)
+				for i := 0; i < fieldVal.Len(); i++ {
+					elem := fieldVal.Index(i)
+					for elem.Kind() == reflect.Pointer {
+						elem = elem.Elem()
+					}
+					var outID *sdkModels.RecordID
+					for _, ref := range rel.References {
+						if !ref.OwnPrimaryKey && ref.PrimaryValue == "" {
+							v, isZero := ref.PrimaryKey.ValueOf(db.Statement.Context, elem)
+							if !isZero {
+								outID = extractRecordID(v)
+							}
+							break
+						}
+					}
+					if outID == nil {
+						continue
+					}
+					rel2 := &surrealdb.Relationship{
+						In:       *inID,
+						Out:      *outID,
+						Relation: sdkModels.Table(registeredEdge),
+					}
+					if _, err := surrealdb.InsertRelation[interface{}](db.Statement.Context, dialector.Conn, rel2); err != nil {
+						db.AddError(err)
+						return
+					}
+				}
+			}
+		}
+	}
+
 	if db.Error == nil {
 		if db.Statement.Schema != nil {
 			for _, c := range db.Statement.Schema.UpdateClauses {
@@ -673,8 +898,21 @@ func executeSQL(db *gorm.DB) {
 	params := make(map[string]interface{})
 
 	for i, v := range vars {
+		// Unwrap *types.RecordID (project wrapper) to the native SDK RecordID
+		// so that the SDK serializes it correctly over CBOR/JSON.
+		if rid, ok := v.(*TypesM.RecordID); ok && rid != nil {
+			native := rid.RecordID
+			params[fmt.Sprintf("p%d", i+1)] = &native
+			continue
+		}
+		if rid, ok := v.(TypesM.RecordID); ok {
+			native := rid.RecordID
+			params[fmt.Sprintf("p%d", i+1)] = &native
+			continue
+		}
+
 		// Handle RecordID manually if needed
-		if rid, ok := v.(*models.RecordID); ok {
+		if rid, ok := v.(*sdkModels.RecordID); ok {
 			params[fmt.Sprintf("p%d", i+1)] = rid
 			continue
 		}
@@ -765,30 +1003,31 @@ func executeSQL(db *gorm.DB) {
 				// Debug JSON
 				// fmt.Printf("DEBUG SELECT JSON: %s\n", string(bytes))
 
-				// Try Manual Map if Schema is available to respect GORM tags (DBName)
+				// Step 1: Full json.Unmarshal into Dest – handles json tags, case-insensitive
+				// matching, and graph-traversal results (e.g. "products" → Products).
+				_ = json.Unmarshal(bytes, db.Statement.Dest)
+
+				// Step 2: Overlay fields that have a custom DBName (gorm column tag) different
+				// from their JSON key, so they are correctly populated even when the DB key
+				// differs from the json tag.
 				if db.Statement.Schema != nil && destVal.Kind() == reflect.Struct {
 					var resultMap map[string]interface{}
 					if err := json.Unmarshal(bytes, &resultMap); err == nil {
 						for _, field := range db.Statement.Schema.Fields {
+							if field.DBName == "" {
+								continue
+							}
 							if val, ok := resultMap[field.DBName]; ok {
 								fieldVal := db.Statement.ReflectValue.FieldByIndex(field.StructField.Index)
 								if fieldVal.CanAddr() {
 									valBytes, err := json.Marshal(val)
 									if err == nil {
-										if err := json.Unmarshal(valBytes, fieldVal.Addr().Interface()); err != nil {
-											// Ignore error
-										}
+										_ = json.Unmarshal(valBytes, fieldVal.Addr().Interface())
 									}
 								}
 							}
 						}
-						return
 					}
-				}
-
-				if err := json.Unmarshal(bytes, db.Statement.Dest); err != nil {
-					// fmt.Printf("DEBUG EXECUTE SQL UNMARSHAL ERROR: %v\n", err)
-					db.AddError(err)
 				}
 			}
 		}

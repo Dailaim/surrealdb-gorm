@@ -8,37 +8,60 @@ import (
 	"github.com/dailaim/surrealdb-gorm/types"
 )
 
-type RelationIdentifiable[T any, U any] interface {
+type EdgeIdentifiable[T any, U any] interface {
 	ConnectionOut() *types.Link[T]
 	ConnectionIn() *types.Link[U]
 }
 
-type Relation[T any, U any] struct {
+// EdgeRelation is a non-generic interface that edge models implement,
+// allowing CreateCallback to detect and route through InsertRelation.
+type EdgeRelation interface {
+	EdgeIn() *types.RecordID
+	EdgeOut() *types.RecordID
+}
+
+type Edge[T any, U any] struct {
 	In  *types.Link[T] `gorm:"column:in" json:"in,omitempty"`
 	Out *types.Link[U] `gorm:"column:out" json:"out,omitempty"`
 }
 
-func (s Relation[T, U]) GormDataType() string {
-	return "relation"
+func (s Edge[T, U]) GormDataType() string {
+	return "Edge"
 }
 
-func (s Relation[T, U]) ConectionOut() *types.Link[U] {
+func (s Edge[T, U]) ConectionOut() *types.Link[U] {
 	return s.Out
 }
 
-func (s Relation[T, U]) ConectionIn() *types.Link[T] {
+func (s Edge[T, U]) ConectionIn() *types.Link[T] {
 	return s.In
 }
 
-func (s Relation[T, U]) Value() (driver.Value, error) {
+// EdgeIn returns the RecordID of the "in" side of the edge, implementing EdgeRelation.
+func (s Edge[T, U]) EdgeIn() *types.RecordID {
+	if s.In != nil {
+		return s.In.ID
+	}
+	return nil
+}
+
+// EdgeOut returns the RecordID of the "out" side of the edge, implementing EdgeRelation.
+func (s Edge[T, U]) EdgeOut() *types.RecordID {
+	if s.Out != nil {
+		return s.Out.ID
+	}
+	return nil
+}
+
+func (s Edge[T, U]) Value() (driver.Value, error) {
 	// Retornamos bytes JSON para que GORM no trate de analizarlo como relación SQL
 	return json.Marshal(s)
 }
 
 // Scan implementa sql.Scanner
-func (s *Relation[T, U]) Scan(value interface{}) error {
+func (s *Edge[T, U]) Scan(value interface{}) error {
 	if value == nil {
-		*s = Relation[T, U]{}
+		*s = Edge[T, U]{}
 		return nil
 	}
 
@@ -59,7 +82,7 @@ func (s *Relation[T, U]) Scan(value interface{}) error {
 	}
 
 	if len(bytes) == 0 {
-		*s = Relation[T, U]{}
+		*s = Edge[T, U]{}
 		return nil
 	}
 
@@ -68,12 +91,12 @@ func (s *Relation[T, U]) Scan(value interface{}) error {
 	return json.Unmarshal(bytes, s)
 }
 
-type RelationSchemafull[T any, U any] struct {
+type EdgeSchemafull[T any, U any] struct {
 	Schemafull
-	Relation[T, U]
+	Edge[T, U]
 }
 
-type RelationSchemaless[T any, U any] struct {
+type EdgeSchemaless[T any, U any] struct {
 	Schemaless
-	Relation[T, U]
+	Edge[T, U]
 }
