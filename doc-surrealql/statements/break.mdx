@@ -1,21 +1,17 @@
 ---
-sidebar_position: 3
-sidebar_label: BREAK
-title: BREAK statement | SurrealQL
-description: The BREAK statement can be used to break out of a loop.
+position: 4
+title: BREAK
+description: "The BREAK statement can be used to break out of a loop."
 ---
 
 # `BREAK` statement
 
-The BREAK statement can be used to break out of a loop, such as inside one created by the [FOR statement](/docs/surrealql/statements/for).
+The BREAK statement can be used to break out of a loop, such as inside one created by the [FOR statement](/docs/reference/query-language/statements/for).
 
-import RailroadDiagram from '@components/RailroadDiagram.astro'
-import Tabs from '@components/Tabs/Tabs.astro'
-import TabItem from '@components/Tabs/TabItem.astro'
 
 ### Statement syntax
 
-<Tabs syncKey="break-statement">
+<Tabs synckey="break-statement">
   <TabItem label="SurrealQL Syntax">
 
 ```syntax title="SurrealQL Syntax"
@@ -25,17 +21,8 @@ BREAK
   </TabItem>
   <TabItem label="Railroad Diagram">
 
-export const breakAst = {
-  type: "Diagram",
-  padding: [10, 20, 10, 20],
-  children: [
-    { type: "Sequence", children: [
-      { type: "Terminal", text: "BREAK" }
-    ]}
-  ]
-};
 
-<RailroadDiagram ast={breakAst} className="my-6" />
+<RailroadDiagram ast='{"type":"Diagram","padding":[10,20,10,20],"children":[{"type":"Sequence","children":[{"type":"Terminal","text":"BREAK"}]}]}' />
 
   </TabItem>
 </Tabs>

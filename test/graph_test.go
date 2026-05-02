@@ -8,16 +8,19 @@ import (
 
 	"github.com/dailaim/surrealdb-gorm/models"
 	"github.com/dailaim/surrealdb-gorm/types"
+	"gorm.io/gorm"
 )
 
 type Buyer struct {
 	models.Schemaless
 	Name     string
 	Wishlist []Wishlist `gorm:"-"`
-	Products []Product  `gorm:"many2many:wishlist;"`
+	Products []Product  `gorm:"many2many:wishlists;joinForeignKey:in;joinReferences:out"`
 }
 
-// this is arc for many to many
+// Wishlist is the edge type for the Buyer→Product many-to-many relation.
+// Extra fields (Name, Year) can only be set via db.Create(&Wishlist{...}).
+// Association.Append creates edges without extra fields.
 type Wishlist struct {
 	models.EdgeSchemaless[Buyer, Product]
 	Name string
@@ -28,14 +31,29 @@ type Product struct {
 	models.Schemaless
 	Name     string
 	Wishlist []Wishlist `gorm:"-"`
-	Buyers   []Buyer    `gorm:"many2many:wishlist;"`
+	Buyers   []Buyer    `gorm:"many2many:wishlists;joinForeignKey:out;joinReferences:in"`
+}
+
+// cleanupGraph removes all rows from buyers, products and wishlists tables.
+// Call at the start of each graph test to ensure a clean state between runs.
+func cleanupGraph(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	for _, q := range []string{
+		"DELETE FROM wishlists",
+		"DELETE FROM buyers",
+		"DELETE FROM products",
+	} {
+		if err := db.Exec(q).Error; err != nil {
+			t.Logf("cleanupGraph warning: %v", err)
+		}
+	}
 }
 
 func TestGraphManyToMany(t *testing.T) {
 	db := setupDB(t)
-
-	db.AutoMigrate(&Buyer{}, &Product{})
-	db.AutoMigrate(&Wishlist{})
+	db.AutoMigrate(&Buyer{}, &Product{}, &Wishlist{})
+	cleanupGraph(t, db)
+	t.Cleanup(func() { cleanupGraph(t, db) })
 
 	buyer := Buyer{Name: "Alice"}
 	product := Product{Name: "Product 1"}
@@ -102,6 +120,8 @@ func TestGraphManyToMany(t *testing.T) {
 func TestGraphManualEdgeNative(t *testing.T) {
 	db := setupDB(t)
 	db.AutoMigrate(&Buyer{}, &Product{}, &Wishlist{})
+	cleanupGraph(t, db)
+	t.Cleanup(func() { cleanupGraph(t, db) })
 
 	buyer := Buyer{Name: "NativeAlice"}
 	product := Product{Name: "NativeProduct"}
@@ -159,6 +179,8 @@ func TestGraphManualEdgeNative(t *testing.T) {
 func TestGraphAssociationEdgeNative(t *testing.T) {
 	db := setupDB(t)
 	db.AutoMigrate(&Buyer{}, &Product{}, &Wishlist{})
+	cleanupGraph(t, db)
+	t.Cleanup(func() { cleanupGraph(t, db) })
 
 	buyer := Buyer{Name: "NativeBob"}
 	product := Product{Name: "NativeProduct2"}
@@ -169,7 +191,7 @@ func TestGraphAssociationEdgeNative(t *testing.T) {
 		t.Fatalf("create product: %v", err)
 	}
 
-	if err := db.Model(&buyer).Association("Products").Append(&product); err != nil {
+	if err := db.Debug().Model(&buyer).Association("Products").Append(&product); err != nil {
 		t.Fatalf("Association.Append: %v", err)
 	}
 
@@ -203,4 +225,185 @@ func TestGraphAssociationEdgeNative(t *testing.T) {
 		t.Error("GORM: expected at least 1 wishlist edge, got 0")
 	}
 	t.Logf("[gorm association] wishlists: %v", wishlist)
+}
+
+// TestAssociationDelete verifies Association("Products").Delete removes the edge.
+func TestAssociationDelete(t *testing.T) {
+	db := setupDB(t)
+	db.AutoMigrate(&Buyer{}, &Product{}, &Wishlist{})
+	cleanupGraph(t, db)
+	t.Cleanup(func() { cleanupGraph(t, db) })
+
+	buyer := Buyer{Name: "DeleteBuyer"}
+	product := Product{Name: "DeleteProduct"}
+	if err := db.Create(&buyer).Error; err != nil {
+		t.Fatalf("create buyer: %v", err)
+	}
+	if err := db.Create(&product).Error; err != nil {
+		t.Fatalf("create product: %v", err)
+	}
+	if err := db.Debug().Model(&buyer).Association("Products").Append(&product); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	var before []Wishlist
+	db.Where("in = ?", buyer.ID).Find(&before)
+	if len(before) == 0 {
+		t.Fatal("expected edge before delete")
+	}
+
+	if err := db.Debug().Model(&buyer).Association("Products").Delete(&product); err != nil {
+		t.Fatalf("Association.Delete: %v", err)
+	}
+
+	var after []Wishlist
+	db.Where("in = ?", buyer.ID).Find(&after)
+	if len(after) != 0 {
+		t.Errorf("expected 0 edges after delete, got %d", len(after))
+	}
+	t.Log("[assoc delete] edge removed successfully")
+}
+
+// TestAssociationReplace verifies Association("Products").Replace swaps edges.
+func TestAssociationReplace(t *testing.T) {
+	db := setupDB(t)
+	db.AutoMigrate(&Buyer{}, &Product{}, &Wishlist{})
+	cleanupGraph(t, db)
+	t.Cleanup(func() { cleanupGraph(t, db) })
+
+	buyer := Buyer{Name: "ReplaceBuyer"}
+	product1 := Product{Name: "ReplaceProduct1"}
+	product2 := Product{Name: "ReplaceProduct2"}
+	if err := db.Create(&buyer).Error; err != nil {
+		t.Fatalf("create buyer: %v", err)
+	}
+	if err := db.Create(&product1).Error; err != nil {
+		t.Fatalf("create product1: %v", err)
+	}
+	if err := db.Create(&product2).Error; err != nil {
+		t.Fatalf("create product2: %v", err)
+	}
+	if err := db.Debug().Model(&buyer).Association("Products").Append(&product1); err != nil {
+		t.Fatalf("append product1: %v", err)
+	}
+
+	if err := db.Debug().Model(&buyer).Association("Products").Replace(&product2); err != nil {
+		t.Fatalf("Association.Replace: %v", err)
+	}
+
+	var edges []Wishlist
+	db.Where("in = ?", buyer.ID).Find(&edges)
+	if len(edges) != 1 {
+		t.Errorf("expected 1 edge after replace, got %d", len(edges))
+	}
+	t.Logf("[assoc replace] edges after replace: %v", edges)
+}
+
+// TestAssociationCount verifies Association("Products").Count() returns correct count.
+func TestAssociationCount(t *testing.T) {
+	db := setupDB(t)
+	db.AutoMigrate(&Buyer{}, &Product{}, &Wishlist{})
+	cleanupGraph(t, db)
+	t.Cleanup(func() { cleanupGraph(t, db) })
+
+	buyer := Buyer{Name: "CountBuyer"}
+	p1 := Product{Name: "CountProduct1"}
+	p2 := Product{Name: "CountProduct2"}
+	if err := db.Create(&buyer).Error; err != nil {
+		t.Fatalf("create buyer: %v", err)
+	}
+	if err := db.Create(&p1).Error; err != nil {
+		t.Fatalf("create p1: %v", err)
+	}
+	if err := db.Create(&p2).Error; err != nil {
+		t.Fatalf("create p2: %v", err)
+	}
+	if err := db.Debug().Model(&buyer).Association("Products").Append(&p1, &p2); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	count := db.Debug().Model(&buyer).Association("Products").Count()
+	if count != 2 {
+		t.Errorf("expected count=2, got %d", count)
+	}
+	t.Logf("[assoc count] count=%d", count)
+}
+
+// TestPreloadFromOut verifies Preload("Buyers") on a Product traverses the edge in reverse.
+func TestPreloadFromOut(t *testing.T) {
+	db := setupDB(t)
+	db.AutoMigrate(&Buyer{}, &Product{}, &Wishlist{})
+	cleanupGraph(t, db)
+	t.Cleanup(func() { cleanupGraph(t, db) })
+
+	buyer := Buyer{Name: "OutBuyer"}
+	product := Product{Name: "OutProduct"}
+	if err := db.Create(&buyer).Error; err != nil {
+		t.Fatalf("create buyer: %v", err)
+	}
+	if err := db.Create(&product).Error; err != nil {
+		t.Fatalf("create product: %v", err)
+	}
+	if err := db.Debug().Model(&buyer).Association("Products").Append(&product); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	var loadedProduct Product
+	if err := db.Preload("Buyers").First(&loadedProduct, "id = ?", product.ID).Error; err != nil {
+		t.Fatalf("Preload Buyers: %v", err)
+	}
+	if len(loadedProduct.Buyers) == 0 {
+		t.Error("expected at least 1 buyer via reverse Preload, got 0")
+	}
+	t.Logf("[preload from out] product loaded %d buyer(s)", len(loadedProduct.Buyers))
+}
+
+// TestDeleteEdgeDirect verifies db.Delete(&wishlist) removes the edge record by ID.
+func TestDeleteEdgeDirect(t *testing.T) {
+	db := setupDB(t)
+	db.AutoMigrate(&Buyer{}, &Product{}, &Wishlist{})
+	cleanupGraph(t, db)
+	t.Cleanup(func() { cleanupGraph(t, db) })
+
+	buyer := Buyer{Name: "DirectDeleteBuyer"}
+	product := Product{Name: "DirectDeleteProduct"}
+	if err := db.Create(&buyer).Error; err != nil {
+		t.Fatalf("create buyer: %v", err)
+	}
+	if err := db.Create(&product).Error; err != nil {
+		t.Fatalf("create product: %v", err)
+	}
+
+	edge := Wishlist{
+		EdgeSchemaless: models.EdgeSchemaless[Buyer, Product]{
+			Edge: models.Edge[Buyer, Product]{
+				In:  &types.Link[Buyer]{ID: buyer.ID},
+				Out: &types.Link[Product]{ID: product.ID},
+			},
+		},
+		Name: "Direct Delete Edge",
+	}
+	if err := db.Create(&edge).Error; err != nil {
+		t.Fatalf("create edge: %v", err)
+	}
+	if edge.ID == nil {
+		t.Fatal("edge ID not populated")
+	}
+
+	if err := db.Delete(&edge).Error; err != nil {
+		t.Fatalf("db.Delete edge: %v", err)
+	}
+
+	ctx := context.Background()
+	results, err := surrealdb.Query[[]map[string]interface{}](ctx, getDialector(db).Conn,
+		"SELECT * FROM wishlists WHERE id = $id",
+		map[string]interface{}{"id": &edge.ID.RecordID},
+	)
+	if err != nil {
+		t.Fatalf("native query after delete: %v", err)
+	}
+	if len(*results) > 0 && len((*results)[0].Result) > 0 {
+		t.Errorf("edge still exists after db.Delete: %v", (*results)[0].Result[0])
+	}
+	t.Log("[delete edge direct] edge deleted successfully")
 }

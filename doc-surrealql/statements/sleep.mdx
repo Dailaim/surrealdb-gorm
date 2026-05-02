@@ -1,8 +1,7 @@
 ---
-sidebar_position: 22
-sidebar_label: SLEEP
-title: SLEEP statement | SurrealQL
-description: The SLEEP statement is used to introduce a delay or pause in the execution of a query or a batch of queries for a specific amount of time.
+position: 24
+title: SLEEP
+description: "The SLEEP statement is used to introduce a delay or pause in the execution of a query or a batch of queries for a specific amount of time."
 ---
 
 # `SLEEP` statement
@@ -11,11 +10,8 @@ The `SLEEP` statement is used to introduce a delay or pause in the execution of 
 
 ### Statement syntax
 
-import RailroadDiagram from "@components/RailroadDiagram.astro";
-import Tabs from "@components/Tabs/Tabs.astro";
-import TabItem from "@components/Tabs/TabItem.astro";
 
-<Tabs syncKey="sleep-statement">
+<Tabs synckey="sleep-statement">
   <TabItem label="SurrealQL Syntax">
 
 ```syntax title="SurrealQL Syntax"
@@ -25,22 +21,8 @@ SLEEP @duration;
   </TabItem>
   <TabItem label="Railroad Diagram">
 
-export const sleepAst = {
-  type: "Diagram",
-  padding: [10, 20, 10, 20],
-  children: [
-    {
-      type: "Sequence",
-      children: [
-        { type: "Terminal", text: "SLEEP" },
-        { type: "NonTerminal", text: "@duration" },
-        { type: "Terminal", text: ";" },
-      ],
-    },
-  ],
-};
 
-<RailroadDiagram ast={sleepAst} className="my-6" />
+<RailroadDiagram ast='{"type":"Diagram","padding":[10,20,10,20],"children":[{"type":"Sequence","children":[{"type":"Terminal","text":"SLEEP"},{"type":"NonTerminal","text":"@duration"},{"type":"Terminal","text":";"}]}]}' />
 
   </TabItem>
 </Tabs>
@@ -56,11 +38,11 @@ SLEEP 1s;
 SLEEP 100ms;
 ```
 
-For more dynamic usage of sleep, see SurrealDB's [sleep](/docs/surrealql/functions/database/sleep) function.
+For more dynamic usage of sleep, see SurrealDB's [sleep](/docs/reference/query-language/functions/database-functions/sleep) function.
 
 ## SLEEP during parallel operations
 
-A `SLEEP` statement does not interfere with operations that are underway in the background, such as a [`DEFINE INDEX`](/docs/surrealql/statements/define/indexes) statement using the `CONCURRENTLY` clause.
+A `SLEEP` statement does not interfere with operations that are underway in the background, such as a [`DEFINE INDEX`](/docs/reference/query-language/statements/define/indexes) statement using the `CONCURRENTLY` clause.
 
 ```surql
 CREATE |user:50000| SET name = id.id() RETURN NONE;

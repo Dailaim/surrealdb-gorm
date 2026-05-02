@@ -1,13 +1,8 @@
 ---
-sidebar_position: 6
-sidebar_label: DEFINE DATABASE
-title: DEFINE DATABASE statement | SurrealQL
-description: The DEFINE DATABASE statement allows you to instantiate a named database, enabling you to specify security and configuration options.
+position: 7
+title: DEFINE DATABASE
+description: "The DEFINE DATABASE statement allows you to instantiate a named database, enabling you to specify security and configuration options."
 ---
-import Since from '@components/shared/Since.astro'
-import RailroadDiagram from '@components/RailroadDiagram.astro'
-import Tabs from '@components/Tabs/Tabs.astro'
-import TabItem from '@components/Tabs/TabItem.astro'
 
 # `DEFINE DATABASE` statement
 
@@ -16,35 +11,22 @@ The `DEFINE DATABASE` statement allows you to instantiate a named database, enab
 ## Requirements
 
 - You must be authenticated as a root owner or editor, or namespace owner or editor before you can use the `DEFINE DATABASE` statement.
-- [You must select your namespace](/docs/surrealql/statements/use) before you can use the `DEFINE DATABASE` statement.
+- [You must select your namespace](/docs/reference/query-language/statements/use) before you can use the `DEFINE DATABASE` statement.
 
 ## Statement syntax
 
-<Tabs syncKey="define-database-statement">
+<Tabs synckey="define-database-statement">
   <TabItem label="SurrealQL Syntax">
 
 ```syntax title="SurrealQL Syntax"
-DEFINE DATABASE [ OVERWRITE | IF NOT EXISTS ] @name [ COMMENT @string ]
+DEFINE DATABASE [ OVERWRITE | IF NOT EXISTS ] @name [ STRICT ] [ COMMENT @string ]
 ```
 
   </TabItem>
   <TabItem label="Railroad Diagram">
 
-export const defineDatabaseAst = {
-  type: "Diagram",
-  padding: [10, 20, 10, 20],
-  children: [
-    { type: "Sequence", children: [
-      { type: "Terminal", text: "DEFINE" },
-      { type: "Terminal", text: "DATABASE" },
-      { type: "Optional", child: { type: "Choice", index: 1, children: [ { type: "Terminal", text: "OVERWRITE" }, { type: "Sequence", children: [ { type: "Terminal", text: "IF" }, { type: "Terminal", text: "NOT" }, { type: "Terminal", text: "EXISTS" } ] } ] } },
-      { type: "NonTerminal", text: "@name" },
-      { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "COMMENT" }, { type: "NonTerminal", text: "@string" } ] } }
-    ]}
-  ]
-};
 
-<RailroadDiagram ast={defineDatabaseAst} className="my-6" />
+<RailroadDiagram ast='{"type":"Diagram","padding":[10,20,10,20],"children":[{"type":"Sequence","children":[{"type":"Terminal","text":"DEFINE"},{"type":"Terminal","text":"DATABASE"},{"type":"Optional","child":{"type":"Choice","index":1,"children":[{"type":"Terminal","text":"OVERWRITE"},{"type":"Sequence","children":[{"type":"Terminal","text":"IF"},{"type":"Terminal","text":"NOT"},{"type":"Terminal","text":"EXISTS"}]}]}},{"type":"NonTerminal","text":"@name"},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"STRICT"}]}},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"COMMENT"},{"type":"NonTerminal","text":"@string"}]}}]}]}' />
 
   </TabItem>
 </Tabs>
@@ -72,7 +54,6 @@ DEFINE DATABASE app_vitalsense;
 
 ## Using `IF NOT EXISTS` clause
 
-<Since v="v1.3.0" />
 
 The `IF NOT EXISTS` clause can be used to define a database only if it does not already exist. You should use the `IF NOT EXISTS` clause when defining a database in SurrealDB if you want to ensure that the database is only created if it does not already exist. If the database already exists, the `DEFINE DATABASE` statement will return an error.
 
@@ -108,4 +89,35 @@ value = "NONE"
 
 -- Create a database and overwrite if it already exists
 DEFINE DATABASE OVERWRITE app_vitalsense;
+```
+
+## Defining a `STRICT` database
+
+<Since v="v3.0.0" />
+
+A strict database is one that does not allow a resource to be used unless it has already been defined. The default behaviour in SurrealDB works otherwise, by allowing statements like [CREATE](/docs/reference/query-language/statements/create), [INSERT](/docs/reference/query-language/statements/insert) and [UPSERT](/docs/reference/query-language/statements/create) to work.
+
+```surql
+CREATE some_new_table;
+INFO FOR DATABASE.tables;
+```
+
+The output of the [INFO](/docs/reference/query-language/statements/info) statement shows that a table called `some_new_table` has been created with a few default clauses.
+
+```surql
+{
+	some_new_table: 'DEFINE TABLE some_new_table TYPE ANY SCHEMALESS PERMISSIONS NONE'
+}
+```
+
+Such an operation within a strict database is simply not allowed.
+
+```surql
+DEFINE DATABASE new_db STRICT;
+USE DATABASE new_db;
+CREATE some_new_table;
+```
+
+```surql title="Output"
+"The table 'some_new_table' does not exist"
 ```

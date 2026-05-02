@@ -1,14 +1,8 @@
 ---
-sidebar_position: 9
-sidebar_label: DEFINE FUNCTION
-title: DEFINE FUNCTION statement | SurrealQL
-description: The DEFINE FUNCTION statement allows you to define custom functions that can be reused throughout a database.
+position: 10
+title: DEFINE FUNCTION
+description: "The DEFINE FUNCTION statement allows you to define custom functions that can be reused throughout a database."
 ---
-
-import SurrealistMini from "@components/SurrealistMini.astro";
-import Since from '@components/shared/Since.astro'
-import Image from '@components/Image.astro'
-import RecursiveStar from "@img/image/recursive_star.png";
 
 # `DEFINE FUNCTION` statement
 
@@ -19,12 +13,13 @@ Functions can be used to encapsulate logic that you want to reuse in multiple qu
 ## Requirements
 
 - You must be authenticated as a root owner or editor, namespace owner or editor, or database owner or editor before you can use the `DEFINE FUNCTION` statement.
-- [You must select your namespace and database](/docs/surrealql/statements/use) before you can use the `DEFINE FUNCTION` statement.
+- [You must select your namespace and database](/docs/reference/query-language/statements/use) before you can use the `DEFINE FUNCTION` statement.
 
 ## Statement syntax
 
 ```syntax title="SurrealQL Syntax"
-DEFINE FUNCTION [ OVERWRITE | IF NOT EXISTS ] fn::@name( [ @argument: @type ... ] ) [ -> @value ] {
+DEFINE FUNCTION [ OVERWRITE | IF NOT EXISTS ] fn::@name
+  ( [ @argument: @type ... ] ) [ -> @type ] {
 	[ @query ... ]
 	[ RETURN @returned ]
 } [ COMMENT @string ] [ PERMISSIONS [ NONE | FULL | WHERE @condition]]
@@ -170,7 +165,7 @@ While both of these return an error, the output of the second function happens o
 "Couldn't coerce return value from function `fn::combine_any`: Expected `number` but found `'onetwo'`"
 ```
 
-The return value of a function can even be a [literal type](/docs/surrealql/datamodel/literals). The following function returns such a type by either returning an object of a certain structure, or a string. In this case this output is used in case an application prefers to return an error as a simple string instead of [throwing](/docs/surrealql/statements/throw) an error or returning a NONE value.
+The return value of a function can even be a [literal type](/docs/reference/query-language/language-primitives/data-types/literals). The following function returns such a type by either returning an object of a certain structure, or a string. In this case this output is used in case an application prefers to return an error as a simple string instead of [throwing](/docs/reference/query-language/statements/throw) an error or returning a NONE value.
 
 ```surql
 DEFINE FUNCTION fn::age_and_name($user_num: int) -> { age: int, name: string } | string {
@@ -245,35 +240,29 @@ SELECT id, ->to->? FROM person;
 
 The last query [can be viewed graphically](/blog/whats-new-in-surrealist-3-2#graph-visualisation) inside Surrealist, leading to an output showing a seven-pointed star.
 
-<Image
-  alt="An image of a seven-pointed star created visually by relating seven records to each other and displayed inside Surrealist's graph view."
-  src={{
-    light: RecursiveStar,
-    dark: RecursiveStar,
-  }}
-/>
+<img src="~/assets/img/image/recursive_star.png" alt="An image of a seven-pointed star created visually by relating seven records to each other and displayed inside Surrealist's graph view." />
 
 ## Permissions
 
 You can set the permissions for a custom function using the `PERMISSIONS` clause. The `PERMISSIONS` clause is mostly used to restrict who can access a function and what data they can access. It can be set to `NONE`, `FULL`, or `WHERE @condition`.
 
-- `FULL`: When Full permissions are granted [record](/docs/surrealdb/security/authentication#record-users) users have access to the function. This is the default permission when not specified.
-- `NONE`: When this permission is granted, [record](/docs/surrealdb/security/authentication#record-users) users have no access to the defined function.
+- `FULL`: When Full permissions are granted [record](/docs/learn/security/authentication/authentication#record-users) users have access to the function. This is the default permission when not specified.
+- `NONE`: When this permission is granted, [record](/docs/learn/security/authentication/authentication#record-users) users have no access to the defined function.
 - `WHERE @condition`: Permissions are granted to the function based on the specified condition.
 
 
 > [!NOTE]
-> The examples below use the [`Surreal Deal Store`](/docs/surrealql/demo#surreal-deal-store---there-is-a-lot-in-store-for-you-recommended) dataset.
+> The examples below use the [`Surreal Deal Store`](/docs/start#surreal-deal-store---there-is-a-lot-in-store-for-you-recommended) dataset.
 
 ### Using the `FULL` permission
 
 The `FULL` permission grants all users access to the function. The following example defines a function that fetches all products from the `product` table and grants the function full permissions to access the data to all users.
 
-<SurrealistMini url="https://app.surrealdb.com/mini?query=--+Define+a+function+to+fetch+all+products.+All+users+can+access+this+function%0ADEFINE+FUNCTION+fn%3A%3AfetchAllProducts%28%29+%7B%0A%09RETURN+%28SELECT+*+FROM+product+LIMIT+10%29%3B%0A%7D+PERMISSIONS+FULL%3B%0A%0A--+Returns%3A+The+first+10+products+in+the+product+table%0ARETURN+fn%3A%3AfetchAllProducts%28%29%3B&dataset=surreal-deal-store&orientation=horizontal"/>
+<SurrealistMini url="https://app.surrealdb.com/mini?query=--+Define+a+function+to+fetch+all+products.+All+users+can+access+this+function%0ADEFINE+FUNCTION+fn%3A%3AfetchAllProducts%28%29+%7B%0A%09RETURN+%28SELECT+*+FROM+product+LIMIT+10%29%3B%0A%7D+PERMISSIONS+FULL%3B%0A%0A--+Returns%3A+The+first+10+products+in+the+product+table%0ARETURN+fn%3A%3AfetchAllProducts%28%29%3B&dataset=surreal-deal-store&orientation=horizontal" />
 
 ### Using the `NONE` permission
 
-The `NONE` permission denies all [record](/docs/surrealdb/security/authentication#record-users) users access to the function. The following example defines a function that fetches all products from the `product` table
+The `NONE` permission denies all [record](/docs/learn/security/authentication/authentication#record-users) users access to the function. The following example defines a function that fetches all products from the `product` table
 
 ```surql
 /**[test]
@@ -314,7 +303,6 @@ DEFINE FUNCTION fn::fetchAllProducts() {
 
 ## Using `IF NOT EXISTS` clause
 
-<Since v="v1.3.0" />
 
 The `IF NOT EXISTS` clause can be used to define a function only if it does not already exist. You should use the `IF NOT EXISTS` clause when defining a function in SurrealDB if you want to ensure that the function is only created if it does not already exist. If the function already exists, the `DEFINE FUNCTION` statement will return an error.
 
@@ -351,3 +339,9 @@ value = "NONE"
 -- Create a FUNCTION and overwrite if it already exists
 DEFINE FUNCTION OVERWRITE fn::example() {};
 ```
+
+## Functions as custom middleware
+
+<Since v="v3.0.0" />
+
+A `DEFINE FUNCTION` statement can be used to define a function for use as custom middleware. For more details on defining a custom function in this manner, see the [`DEFINE API`](/docs/reference/query-language/statements/define/api#custom-middleware) page.

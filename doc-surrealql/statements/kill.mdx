@@ -1,14 +1,8 @@
 ---
-sidebar_position: 13
-sidebar_label: KILL
-title: KILL statement | SurrealQL
-description: The KILL statement is used to terminate a running live query.
+position: 15
+title: KILL
+description: "The KILL statement is used to terminate a running live query."
 ---
-
-import Since from "@components/shared/Since.astro";
-import RailroadDiagram from "@components/RailroadDiagram.astro";
-import Tabs from "@components/Tabs/Tabs.astro";
-import TabItem from "@components/Tabs/TabItem.astro";
 
 # `KILL` statement
 
@@ -18,7 +12,7 @@ While the `KILL` statement does accept a value type, this value must resolve to 
 
 ### Statement syntax
 
-<Tabs syncKey="kill-statement">
+<Tabs synckey="kill-statement">
   <TabItem label="SurrealQL Syntax">
 
 ```syntax title="SurrealQL Syntax"
@@ -28,22 +22,8 @@ KILL @value;
   </TabItem>
   <TabItem label="Railroad Diagram">
 
-export const killAst = {
-  type: "Diagram",
-  padding: [10, 20, 10, 20],
-  children: [
-    {
-      type: "Sequence",
-      children: [
-        { type: "Terminal", text: "KILL" },
-        { type: "NonTerminal", text: "@value" },
-        { type: "Terminal", text: ";" },
-      ],
-    },
-  ],
-};
 
-<RailroadDiagram ast={killAst} className="my-6" />
+<RailroadDiagram ast='{"type":"Diagram","padding":[10,20,10,20],"children":[{"type":"Sequence","children":[{"type":"Terminal","text":"KILL"},{"type":"NonTerminal","text":"@value"},{"type":"Terminal","text":";"}]}]}' />
 
   </TabItem>
 </Tabs>
@@ -52,7 +32,7 @@ export const killAst = {
 
 ### Basic usage
 
-The `KILL` statement expects the UUID of a running [live select](/docs/surrealql/statements/live) query to be passed. This UUID can be found in the output of the `LIVE` statement, and can thereafter be passed into a `KILL` statement once it is no longer needed.
+The `KILL` statement expects the UUID of a running [live select](/docs/reference/query-language/statements/live-select) query to be passed. This UUID can be found in the output of the `LIVE` statement, and can thereafter be passed into a `KILL` statement once it is no longer needed.
 
 ```surql
 LIVE SELECT DIFF FROM person;
@@ -86,7 +66,7 @@ KILL u'9276b05b-e59a-49cd-9dd1-17c6fd15c28f';
 
 ## Kill notifications
 
-<Since v="v3.0.0-alpha.4" />
+<Since v="v3.0.0" />
 
 A separate notification is sent out when a `KILL` statement is enacted on a live query ID.
 

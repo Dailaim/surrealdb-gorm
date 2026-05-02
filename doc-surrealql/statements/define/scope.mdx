@@ -1,14 +1,12 @@
 ---
-sidebar_position: 14
-sidebar_label: DEFINE SCOPE
-title: DEFINE SCOPE statement | SurrealQL
-description: Setting scope access allows SurrealDB to operate as a web database. With scopes you can set authentication and access rules which enable fine-grained access to tables and fields.
+position: 15
+title: DEFINE SCOPE
+description: "Setting scope access allows SurrealDB to operate as a web database. With scopes you can set authentication and access rules which enable fine-grained access to tables and fields."
 ---
 
 > [!WARNING]
-> This statement was deprecated in favour of `DEFINE ACCESS ... TYPE RECORD` in SurrealDB versions 2.x, and has been removed as of SurrealDB 3.0. Learn more in the [DEFINE ACCESS](/docs/surrealql/statements/define/access).
+> This statement was deprecated in favour of `DEFINE ACCESS ... TYPE RECORD` in SurrealDB versions 2.x, and has been removed as of SurrealDB 3.0. Learn more in the [DEFINE ACCESS](/docs/reference/query-language/statements/define/access).
 
-import Since from '@components/shared/Since.astro'
 
 # `DEFINE SCOPE` statement
 
@@ -17,7 +15,7 @@ Setting scope access allows SurrealDB to operate as a web database. With scopes 
 ## Requirements
 
 - You must be authenticated as a root or namespace user before you can use the `DEFINE SCOPE` statement.
-- [You must select your namespace and database](/docs/surrealql/statements/use) before you can use the `DEFINE SCOPE` statement.
+- [You must select your namespace and database](/docs/reference/query-language/statements/use) before you can use the `DEFINE SCOPE` statement.
 
 ## Statement syntax
 
@@ -38,7 +36,6 @@ DEFINE SCOPE account SESSION 24h
 
 ## Using `IF NOT EXISTS` clause
 
-<Since v="v1.3.0" />
 
 The `IF NOT EXISTS` clause can be used to define a scope only if it does not already exist. If the scope already exists, the `DEFINE SCOPE` statement will return an error.
 

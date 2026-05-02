@@ -1,16 +1,10 @@
 ---
-sidebar_position: 14
-sidebar_label: LET
-title: LET statement | SurrealQL
-description: The LET statement sets and stores a value which can then be used in a subsequent query.
+position: 16
+title: LET
+description: "The LET statement sets and stores a value which can then be used in a subsequent query."
 ---
 
-import Since from '@components/shared/Since.astro'
-import RailroadDiagram from '@components/RailroadDiagram.astro'
-import Tabs from '@components/Tabs/Tabs.astro'
-import TabItem from '@components/Tabs/TabItem.astro'
-
-# `LET` Statement
+# `LET` statement
 
 The `LET` statement allows you to create parameters to store any value, including the results of queries or the outputs of expressions. These parameters can then be referenced throughout your SurrealQL code, making your queries more dynamic and reusable.
 
@@ -18,40 +12,25 @@ The `LET` statement allows you to create parameters to store any value, includin
 
 The syntax for the `LET` statement is straightforward. The parameter name is prefixed with a `$` symbol.
 
-<Tabs syncKey="let-statement">
+<Tabs synckey="let-statement">
   <TabItem label="SurrealQL Syntax">
 
 ```syntax title="SurrealQL Syntax"
-LET $@parameter [: @type_name] = @value;
+LET $parameter [: @type_name] = @value;
 ```
 
   </TabItem>
   <TabItem label="Railroad Diagram">
 
-export const letAst = {
-  type: "Diagram",
-  padding: [10, 20, 10, 20],
-  children: [
-    { type: "Sequence", children: [
-      { type: "Terminal", text: "LET" },
-      { type: "Terminal", text: "$" },
-      { type: "NonTerminal", text: "@parameter" },
-      { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: ":" }, { type: "NonTerminal", text: "@type_name" } ] } },
-      { type: "Terminal", text: "=" },
-      { type: "NonTerminal", text: "@value" },
-      { type: "Terminal", text: ";" }
-    ]}
-  ]
-};
 
-<RailroadDiagram ast={letAst} className="my-6" />
+<RailroadDiagram ast='{"type":"Diagram","padding":[10,20,10,20],"children":[{"type":"Sequence","children":[{"type":"Terminal","text":"LET"},{"type":"Terminal","text":"$"},{"type":"NonTerminal","text":"@parameter"},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":":"},{"type":"NonTerminal","text":"@type_name"}]}},{"type":"Terminal","text":"="},{"type":"NonTerminal","text":"@value"},{"type":"Terminal","text":";"}]}]}' />
 
   </TabItem>
 </Tabs>
 
-## Example Usage
+## Example usage
 
-### Basic Parameter Assignment
+### Basic parameter assignment
 
 You can use the `LET` statement to store simple values or query results. For example, storing a string value and then using it in a `CREATE` statement:
 
@@ -73,7 +52,7 @@ LET $name = "tobie";
 CREATE person SET name = $name;
 ```
 
-### Storing Query Results
+### Storing query results
 
 The `LET` statement is also useful for storing the results of a query, which can then be used in subsequent operations:
 
@@ -94,7 +73,7 @@ LET $adults = SELECT * FROM person WHERE age > 18;
 UPDATE $adults SET adult = true;
 ```
 
-### Conditional Logic with `IF ELSE`
+### Conditional logic with `IF ELSE`
 
 SurrealQL allows you to define parameters based on conditional logic using `IF ELSE` statements:
 
@@ -123,14 +102,14 @@ RETURN $num_type;
 -- 'integer'
 ```
 
-## Anonymous Functions
+## Anonymous functions
 
-You can define anonymous functions also known as closures using the `LET` statement. These functions can be used to encapsulate reusable logic and can be called from within your queries. Learn more about [anonymous functions](/docs/surrealql/datamodel/closures) in the Data model section.
+You can define anonymous functions also known as closures using the `LET` statement. These functions can be used to encapsulate reusable logic and can be called from within your queries. Learn more about [anonymous functions](/docs/reference/query-language/language-primitives/data-types/closures) in the Data model section.
 
 
-## Pre-Defined and Protected Parameters
+## Pre-defined and protected parameters
 
-SurrealDB comes with [pre-defined parameters](/docs/surrealql/parameters) that are accessible in any context. However, parameters created using `LET` are not accessible within the scope of these pre-defined parameters.
+SurrealDB comes with [pre-defined parameters](/docs/reference/query-language/language-primitives/parameters) that are accessible in any context. However, parameters created using `LET` are not accessible within the scope of these pre-defined parameters.
 
 Furthermore, some pre-defined parameters are protected and cannot be overwritten using `LET`:
 
@@ -182,11 +161,11 @@ LET $session = 10;
 ```
 
 ```surql title="Output"
--------- Query 1 (0ns) --------
+-------- Query 1 --------
 
 "'auth' is a protected variable and cannot be set"
 
--------- Query 2 (0ns) --------
+-------- Query 2 --------
 
 "'session' is a protected variable and cannot be set"
 ```
@@ -210,64 +189,6 @@ LET $number: int = "9";
 
 ```surql title="Output"
 "Tried to set `$number`, but couldn't coerce value: Expected `int` but found `'9'`"
-```
-
-### Taking advantage of type safety
-
-Using typed `LET` statements is a good practice when prototyping code or when getting used to SurrealQL for the first time. Take the following example that attempts to count the number of `true` values in a field by filtering out values that are not `true`, without noticing that the field actually contains strings instead of booleans. The query output ends up being 0, rather than the expected 2.
-
-```surql
-/**[test]
-
-[[test.results]]
-value = "[{ id: some:record, vals: ['true', 'false', 'true'] }]"
-
-[[test.results]]
-value = "0"
-
-*/
-
-CREATE some:record SET vals = ["true", "false", "true"];
-some:record.vals.filter(|$val| $val = true).len();
-```
-
-```surql title="Output"
-0
-```
-
-Breaking this into multiple typed `LET` statements shows the error right away.
-
-```surql
-LET $vals: array<bool> = some:record.vals;
-LET $len: number = $vals.filter(|$val| $val = true).len();
-$len;
-```
-
-```surql title="Output"
--------- Query 1 --------
-
-"Tried to set `$vals`, but couldn't coerce value: Expected `bool` but found `'true'` when coercing an element of `array<bool>`"
-
--------- Query 2 --------
-
-'There was a problem running the filter() function. no such method found for the none type'
-
--------- Query 3 --------
-
-NONE
-```
-
-With the location of the error in clear sight, a fix is that much easier to implement.
-
-```surql
--- Use .map() to turn each string into a bool
-LET $vals: array<bool> = some:record.vals.map(|$val| <bool>$val);
-LET $len: number = $vals.filter(|$val| $val = true).len();
-$len;
-```
-
-```surql title="Output"
-2
 ```
 
 ### Typed literal statements
@@ -295,10 +216,14 @@ value = "NONE"
 
 */
 
-LET $error_info: string | { error: string } = { error: "Something went wrong plz help" };
+LET $error_info: 
+  string | { error: string } = 
+  { 
+    error: "Something went wrong plz help" 
+  };
 ```
 
-For more information on this pattern, see the page on [literals](/docs/surrealql/datamodel/literals).
+For more information on this pattern, see the page on [literals](/docs/reference/query-language/language-primitives/data-types/literals).
 
 ## Conclusion
 

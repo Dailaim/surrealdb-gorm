@@ -20,6 +20,17 @@ type EdgeRelation interface {
 	EdgeOut() *types.RecordID
 }
 
+// Edge is the base embedded type for SurrealDB graph edge models.
+// Embed it (or EdgeSchemafull/EdgeSchemaless) in your edge struct.
+//
+// # Extra fields and Association.Append
+//
+// GORM's standard Association.Append API does not provide a way to pass
+// additional data to the join table. If you need an edge with custom fields
+// (e.g. Name, Year), use db.Create(&MyEdge{Edge: ..., Name: "x"}) directly.
+// Association.Append will create the edge but leave extra fields at their zero
+// value. This is a limitation of the GORM association API and cannot be worked
+// around without a custom helper.
 type Edge[T any, U any] struct {
 	In  *types.Link[T] `gorm:"column:in" json:"in,omitempty"`
 	Out *types.Link[U] `gorm:"column:out" json:"out,omitempty"`

@@ -1,14 +1,8 @@
 ---
-sidebar_position: 20
-sidebar_label: SELECT
-title: SELECT statement | SurrealQL
-description: The SELECT statement can be used for selecting and querying data in a database.
+position: 22
+title: SELECT
+description: "The SELECT statement can be used for selecting and querying data in a database."
 ---
-
-import Since from '@components/shared/Since.astro'
-import RailroadDiagram from '@components/RailroadDiagram.astro'
-import Tabs from '@components/Tabs/Tabs.astro'
-import TabItem from '@components/Tabs/TabItem.astro'
 
 # `SELECT` statement
 
@@ -18,7 +12,7 @@ In the [Learn more](#learn-more) section, you can find a video that explains how
 
 ### Statement syntax
 
-<Tabs syncKey="select-statement">
+<Tabs synckey="select-statement">
   <TabItem label="SurrealQL Syntax">
 
 ```syntax title="SurrealQL Syntax"
@@ -28,61 +22,24 @@ SELECT
     [ WITH [ NOINDEX | INDEX @indexes ... ]]
     [ WHERE @conditions ]
     [ SPLIT [ ON ] @field, ... ]
-    [ GROUP [ ALL | [ BY ] @field, ... ]]
-    [ ORDER [ BY ] 
-        @field [ COLLATE ] [ NUMERIC ] [ ASC | DESC ], ...
-        | RAND() ]
+    [ 
+		GROUP [ ALL | [ BY ] @field, ... ] | 
+		ORDER [ BY ] RAND() | @field [ COLLATE ] [ NUMERIC ] [ ASC | DESC ], ...
+	]
     [ LIMIT [ BY ] @limit ]
     [ START [ AT ] @start 0 ]
     [ FETCH @fields ... ]
     [ TIMEOUT @duration ]
     [ TEMPFILES ]
-    [ EXPLAIN [ FULL ]]
+    [ EXPLAIN [ FULL ] ]
 ;
 ```
 
   </TabItem>
   <TabItem label="Railroad Diagram">
 
-export const selectAst = {
-  type: "Diagram",
-  padding: [10, 20, 10, 20],
-  children: [
-    {
-      type: "Sequence",
-      children: [
-        { type: "Terminal", text: "SELECT" },
-        {
-          type: "Choice",
-          index: 1,
-          children: [
-            { type: "Sequence", children: [ { type: "Terminal", text: "VALUE" }, { type: "NonTerminal", text: "@field" } ] },
-            { type: "NonTerminal", text: "@fields" }
-          ]
-        },
-        { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "AS" }, { type: "NonTerminal", text: "@alias" } ] } },
-        { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "OMIT" }, { type: "NonTerminal", text: "@fields ..." } ] } },
-        { type: "Terminal", text: "FROM" },
-        { type: "Optional", child: { type: "Terminal", text: "ONLY" } },
-        { type: "NonTerminal", text: "@targets" },
-        { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "WITH" }, { type: "Choice", index: 1, children: [ { type: "Terminal", text: "NOINDEX" }, { type: "Sequence", children: [ { type: "Terminal", text: "INDEX" }, { type: "NonTerminal", text: "@indexes ..." } ] } ] } ] } },
-        { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "WHERE" }, { type: "NonTerminal", text: "@conditions" } ] } },
-        { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "SPLIT" }, { type: "Optional", child: { type: "Terminal", text: "ON" } }, { type: "NonTerminal", text: "@field, ..." } ] } },
-        { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "GROUP" }, { type: "Choice", index: 1, children: [ { type: "Terminal", text: "ALL" }, { type: "Sequence", children: [ { type: "Optional", child: { type: "Terminal", text: "BY" } }, { type: "NonTerminal", text: "@field, ..." } ] } ] } ] } },
-        { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "ORDER" }, { type: "Optional", child: { type: "Terminal", text: "BY" } }, { type: "Choice", index: 1, children: [ { type: "Sequence", children: [ { type: "NonTerminal", text: "@field" }, { type: "Optional", child: { type: "Terminal", text: "COLLATE" } }, { type: "Optional", child: { type: "Terminal", text: "NUMERIC" } }, { type: "Optional", child: { type: "Choice", index: 1, children: [ { type: "Terminal", text: "ASC" }, { type: "Terminal", text: "DESC" } ] } } ] }, { type: "Terminal", text: "RAND()" } ] } ] } },
-        { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "LIMIT" }, { type: "Optional", child: { type: "Terminal", text: "BY" } }, { type: "NonTerminal", text: "@limit" } ] } },
-        { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "START" }, { type: "Optional", child: { type: "Terminal", text: "AT" } }, { type: "NonTerminal", text: "@start" } ] } },
-        { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "FETCH" }, { type: "NonTerminal", text: "@fields ..." } ] } },
-        { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "TIMEOUT" }, { type: "NonTerminal", text: "@duration" } ] } },
-        { type: "Optional", child: { type: "Terminal", text: "TEMPFILES" } },
-        { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "EXPLAIN" }, { type: "Optional", child: { type: "Terminal", text: "FULL" } } ] } },
-        { type: "Terminal", text: ";" },
-      ]
-    }
-  ]
-};
 
-<RailroadDiagram ast={selectAst} className="my-6" />
+<RailroadDiagram ast='{"type":"Diagram","padding":[10,20,10,20],"children":[{"type":"Sequence","children":[{"type":"Terminal","text":"SELECT"},{"type":"Choice","index":1,"children":[{"type":"Sequence","children":[{"type":"Terminal","text":"VALUE"},{"type":"NonTerminal","text":"@field"}]},{"type":"NonTerminal","text":"@fields"}]},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"AS"},{"type":"NonTerminal","text":"@alias"}]}},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"OMIT"},{"type":"NonTerminal","text":"@fields ..."}]}},{"type":"Terminal","text":"FROM"},{"type":"Optional","child":{"type":"Terminal","text":"ONLY"}},{"type":"NonTerminal","text":"@targets"},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"WITH"},{"type":"Choice","index":1,"children":[{"type":"Terminal","text":"NOINDEX"},{"type":"Sequence","children":[{"type":"Terminal","text":"INDEX"},{"type":"NonTerminal","text":"@indexes ..."}]}]}]}},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"WHERE"},{"type":"NonTerminal","text":"@conditions"}]}},{"type":"Optional","child":{"type":"Choice","index":1,"children":[{"type":"Sequence","children":[{"type":"Terminal","text":"SPLIT"},{"type":"Optional","child":{"type":"Terminal","text":"ON"}},{"type":"NonTerminal","text":"@field, ..."}]},{"type":"Sequence","children":[{"type":"Terminal","text":"GROUP"},{"type":"Choice","index":1,"children":[{"type":"Terminal","text":"ALL"},{"type":"Sequence","children":[{"type":"Optional","child":{"type":"Terminal","text":"BY"}},{"type":"NonTerminal","text":"@field, ..."}]}]}]}]}},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"ORDER"},{"type":"Optional","child":{"type":"Terminal","text":"BY"}},{"type":"Choice","index":1,"children":[{"type":"Sequence","children":[{"type":"NonTerminal","text":"@field"},{"type":"Optional","child":{"type":"Terminal","text":"COLLATE"}},{"type":"Optional","child":{"type":"Terminal","text":"NUMERIC"}},{"type":"Optional","child":{"type":"Choice","index":1,"children":[{"type":"Terminal","text":"ASC"},{"type":"Terminal","text":"DESC"}]}}]},{"type":"Terminal","text":"RAND()"}]}]}},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"LIMIT"},{"type":"Optional","child":{"type":"Terminal","text":"BY"}},{"type":"NonTerminal","text":"@limit"}]}},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"START"},{"type":"Optional","child":{"type":"Terminal","text":"AT"}},{"type":"NonTerminal","text":"@start"}]}},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"FETCH"},{"type":"NonTerminal","text":"@fields ..."}]}},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"TIMEOUT"},{"type":"NonTerminal","text":"@duration"}]}},{"type":"Optional","child":{"type":"Terminal","text":"TEMPFILES"}},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"EXPLAIN"},{"type":"Optional","child":{"type":"Terminal","text":"FULL"}}]}},{"type":"Terminal","text":";"}]}]}' />
 
   </TabItem>
 </Tabs>
@@ -257,7 +214,7 @@ SELECT ->likes->friend.name AS friends FROM person:tobie;
 -- Use the result of a subquery as a returned field
 SELECT *, (SELECT * FROM events WHERE type = 'activity' LIMIT 5) AS history FROM user;
 
--- Restructure objects in a select expression after `.` operator (since version 2.0.0)
+-- Restructure objects in a select expression after `.` operator
 SELECT address.{city, country} FROM person;
 ```
 
@@ -265,7 +222,7 @@ SELECT address.{city, country} FROM person;
 
 Parameters can be used like variables to store a value which can then be used in a subsequent query.
 
-More info on the `$parent` parameter in the second example can be seen on [the page for predefined variables](/docs/surrealql/parameters).
+More info on the `$parent` parameter in the second example can be seen on [the page for predefined variables](/docs/reference/query-language/language-primitives/parameters).
 
 ```surql
 -- Store the subquery result in a variable and query that result.
@@ -305,7 +262,7 @@ SELECT * FROM person WHERE age IN 18..=65;
 
 ## Record ranges
 
-SurrealDB supports the ability to query a range of records, using the record ID. The record ID ranges, retrieve records using the natural sorting order of the record IDs. These range queries can be used to query a range of records in a timeseries context. You can see more here about [array-based Record IDs](/docs/surrealql/datamodel/ids#array-based-record-ids).
+SurrealDB supports the ability to query a range of records, using the record ID. The record ID ranges, retrieve records using the natural sorting order of the record IDs. These range queries can be used to query a range of records in a timeseries context. You can see more here about [array-based Record IDs](/docs/reference/query-language/language-primitives/data-types/record-ids#array-based-record-ids).
 
 ```surql
 -- Select all person records with IDs between the given range
@@ -338,7 +295,6 @@ LET $_ = SELECT * FROM person WHERE id >= 1 and id <= 5000;
 LET $time2 = time::now() - $now;
 RETURN [$time1, $time2];
 ```
-
 
 
 ## Skip certain fields using the `OMIT` clause
@@ -380,7 +336,7 @@ SELECT * FROM person;
 -- Omit the password field and security field in the options object
 SELECT * OMIT password, opts.security FROM person;
 
--- Using destructuring syntax (since 2.0.0)
+-- Using destructuring syntax
 SELECT * OMIT password, opts.{ security, enabled } FROM person;
 ```
 
@@ -426,7 +382,7 @@ SELECT * FROM (SELECT age >= 18 AS adult FROM user) WHERE adult = true;
 
 ## Filter queries using the `WHERE` clause
 
-As with traditional SQL queries, a SurrealDB SELECT query supports conditional filtering using a `WHERE` clause. If the expression in the `WHERE` clause [is truthy](/docs/surrealql/datamodel/values#values-and-truthiness) (is present and not an empty value), then the respective record will be returned.
+As with traditional SQL queries, a SurrealDB SELECT query supports conditional filtering using a `WHERE` clause. If the expression in the `WHERE` clause [is truthy](/docs/reference/query-language/language-primitives/data-types/values#values-and-truthiness) (is present and not an empty value), then the respective record will be returned.
 
 ```surql
 -- Simple conditional filtering
@@ -451,7 +407,7 @@ SELECT name FROM person WHERE name;
 
 ## The `SPLIT` clause
 
-As SurrealDB supports arrays and nested fields within arrays, it is possible to use the [`SPLIT`](/docs/surrealql/clauses/split) clause to split the result on a specific field name, returning each value in an array as a separate value, along with the record content itself. This is useful in data analysis contexts.
+As SurrealDB supports arrays and nested fields within arrays, it is possible to use the [`SPLIT`](/docs/reference/query-language/clauses/split) clause to split the result on a specific field name, returning each value in an array as a separate value, along with the record content itself. This is useful in data analysis contexts.
 
 ```surql
 /**[test]
@@ -499,7 +455,7 @@ SELECT * FROM (SELECT * FROM person SPLIT loggedin) WHERE loggedin > '2023-05-01
 
 ## The `GROUP BY` and `GROUP ALL` clause
 
-SurrealDB supports data aggregation and grouping, with support for multiple fields, nested fields, and aggregate functions. In SurrealDB, every field which appears in the field projections of the select statement (and which is not an aggregate function), must also be present in the [`GROUP BY`](/docs/surrealql/clauses/group-by) clause.
+SurrealDB supports data aggregation and grouping, with support for multiple fields, nested fields, and aggregate functions. In SurrealDB, every field which appears in the field projections of the select statement (and which is not an aggregate function), must also be present in the [`GROUP BY`](/docs/reference/query-language/clauses/group-by) clause.
 
 ```surql
 -- Group records by a single field
@@ -592,9 +548,61 @@ SELECT count() AS number_of_records FROM person GROUP ALL;
 ]
 ```
 
+### `GROUP` and `SPLIT` incompatibility
+
+The `GROUP` and `SPLIT` clauses are incompatible with each other due to opposing behaviour: while `SPLIT` is a post-processing clause that multiplies the output of a query, `GROUP` works in the other way by collapsing the output.
+
+Versions before 3.0.0-beta allowed these two clauses to be used together, after which attempting to do so results in a parsing error.
+
+```surql
+SELECT * FROM person SPLIT name GROUP BY name;
+```
+
+```surql title="Output"
+'Parse error: SPLIT and GROUP are mutually exclusive
+ --> [6:22]
+  |
+6 | SELECT * FROM person SPLIT name GROUP BY name;
+  |                      ^^^^^^^^^^ SPLIT cannot be used with GROUP
+ --> [6:33]
+  |
+6 | SELECT * FROM person SPLIT name GROUP BY name;
+  |                                 ^^^^^^^^^^^^^ GROUP cannot be used with SPLIT
+'
+```
+
+Disallowing the two clauses together forces a query that uses both to have one inside a subquery, which makes it clear which operation is to be performed first.
+
+```surql
+CREATE user SET
+    name = "Jack",
+    emails = ["my@firstemail.com", "another@builder.com"],
+    age = 37;
+
+CREATE user SET
+    name = "Ellen",
+    emails = ["ruler@forest.com", "wife@tom.com"],
+    age = 50;
+
+CREATE user SET
+    name = "Phillip",
+    emails = ["prior@kingsbridge.com", "boss@remigius.com"],
+    age = 50;
+
+SELECT age, emails FROM (SELECT * FROM user SPLIT emails) GROUP BY age;
+
+SELECT age, emails
+FROM (
+  SELECT age, array::group(emails) AS emails
+  FROM user
+  GROUP BY age
+)
+SPLIT emails;
+```
+
 ### Using a `COUNT` index to speed up `count()` in `GROUP ALL` queries
 
-<Since v="v3.0.0-alpha.10" />
+<Since v="v3.0.0" />
 
 To speed up the `count()` function along with `GROUP ALL` to get the total number of records in a table, a `COUNT` index can be used. This keeps track of the total number of records as a single value as opposed to a dynamic iteration of the table to get the full count every time a query is run.
 
@@ -605,7 +613,7 @@ SELECT count() AS number_of_records FROM person GROUP ALL;
 
 ### `math::stddev()` and `math::variance()` in table views
 
-<Since v="v3.0.0-alpha.11" />
+<Since v="v3.0.0" />
 
 The `math::stddev()` and `math::variance()` functions can also be used in table views.
 
@@ -731,11 +739,11 @@ SELECT * FROM [1,2,3,4,5,6,7,8,9,10] LIMIT 5 START 4;
 
 ## Connect targets using the FETCH clause
 
-Two of the most powerful features in SurrealDB are [record links](/docs/surrealql/datamodel/records) and [graph connections](/docs/surrealql/statements/relate).
+Two of the most powerful features in SurrealDB are [record links](/docs/reference/query-language/language-primitives/record-links) and [graph connections](/docs/reference/query-language/statements/relate).
 
 Instead of pulling data from multiple tables and merging that data together, SurrealDB allows you to traverse related records efficiently without needing to use JOINs.
 
-To fetch and replace records with the remote record data, use the [`FETCH`](/docs/surrealql/clauses/fetch) clause to specify the fields and nested fields which should be fetched in-place, and returned in the final statement response output.
+To fetch and replace records with the remote record data, use the [`FETCH`](/docs/reference/query-language/clauses/fetch) clause to specify the fields and nested fields which should be fetched in-place, and returned in the final statement response output.
 
 ```surql
 -- Select all the review information
@@ -770,7 +778,7 @@ This significantly reduces memory usage in exchange for slower performance.
 SELECT * FROM person ORDER BY name TEMPFILES;
 ```
 
-This requires the temporary directory to be set in the server configuration or when using the [`surreal start`](/docs/surrealdb/cli/start) command.
+This requires the temporary directory to be set in the server configuration or when using the [`surreal start`](/docs/reference/cli/surrealdb-cli/commands/start) command.
 
 ## The `EXPLAIN` clause
 
@@ -968,7 +976,7 @@ SELECT * FROM ONLY table_name LIMIT 1;
 
 <Since v="v2.0.0" />
 
-When you are starting a new database with [SurrealKV as the storage engine](/docs/surrealkv) with versioning enabled, you can specify a version for each record. This is useful for time-travel queries. You can query a specific version of a record by using the `VERSION` clause. The `VERSION` clause is always followed by a [datetime](/docs/surrealql/datamodel/datetimes) and when the specified timestamp does not exist, an empty array is returned.
+When you are starting a new database with memory or [SurrealKV as the storage engine](/docs/architecture) with versioning enabled, you can specify a version for each record. This is useful for time-travel queries. You can query a specific version of a record by using the `VERSION` clause. The `VERSION` clause is always followed by a [datetime](/docs/reference/query-language/language-primitives/data-types/datetimes) and when the specified timestamp does not exist, an empty array is returned.
 
 
 > [!NOTE]
@@ -976,7 +984,7 @@ When you are starting a new database with [SurrealKV as the storage engine](/doc
 
 ```surql
 -- Create a new record
-CREATE user:john SET name = 'John' VERSION d'2024-08-19T08:00:00Z';
+CREATE user:john SET name = 'John' VERSION d'2025-08-19T08:00:00Z';
 [[{ id: user:john, name: 'John' }]]
 
 -- Select the record as it is now
@@ -984,11 +992,11 @@ SELECT * FROM user:john;
 [[{ id: user:john, name: 'John' }]]
 
 -- Select the record as it was at a specific point in time
-SELECT * FROM user:john VERSION d'2024-08-19T08:00:00Z';
+SELECT * FROM user:john VERSION d'2025-08-19T08:00:00Z';
 [[{ id: user:john, name: 'John' }]]
 
 -- Select the record as it was at a specific point in time that doesn't exist
-SELECT * FROM user:john VERSION d'2024-08-19T07:00:00Z';
+SELECT * FROM user:john VERSION d'2025-08-19T07:00:00Z';
 [[]]
 
 -- Update the record to the user john
@@ -1000,7 +1008,7 @@ SELECT * FROM user:john;
 [[{ hight: '55', id: user:john, name: 'John' }]]
 
 -- Select the record for the timestamp before the update
-SELECT * FROM user:john VERSION d'2024-08-19T08:00:00Z';
+SELECT * FROM user:john VERSION d'2025-08-19T08:00:00Z';
 [[{ id: user:john, name: 'John' }]]
 ```
 
@@ -1046,7 +1054,7 @@ SELECT ->(likes LIMIT 1) AS likes FROM person;
 SELECT ->(likes START 1) AS likes FROM person;
 ```
 
-For more examples, see the [graph clauses](/docs/surrealql/statements/relate#graph-clauses) section of the page on the `RELATE` statement.
+For more examples, see the [graph clauses](/docs/reference/query-language/statements/relate#graph-clauses) section of the page on the `RELATE` statement.
 
 ## Learn more
 

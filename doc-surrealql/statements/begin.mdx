@@ -1,21 +1,17 @@
 ---
-sidebar_position: 2
-sidebar_label: BEGIN
-title: BEGIN statement | SurrealQL
-description: The BEGIN statement starts a single transaction in which run multiple statements can be run, either succeeding as a whole, or failing.
+position: 3
+title: BEGIN
+description: "The BEGIN statement starts a single transaction in which run multiple statements can be run, either succeeding as a whole, or failing."
 ---
 
 # `BEGIN` statement
 
-Each statement within SurrealDB is run within its own transaction by default. The `BEGIN` statement can be used to modify this behaviour by running a group of statements inside a single transaction, either succeeding as a whole, or failing. Once all of the statements within a transaction succeed, then all of the data modifications can be made permanent by finalizing the transaction with a [COMMIT](/docs/surrealql/statements/commit) statement at the end. If any statement within a transaction encounters an error or the transaction is manually cancelled ([CANCEL](/docs/surrealql/statements/cancel)), then any data modification made within the transaction is rolled back, and will not become a permanent part of the database.
+Each statement within SurrealDB is run within its own transaction by default. The `BEGIN` statement can be used to modify this behaviour by running a group of statements inside a single transaction, either succeeding as a whole, or failing. Once all of the statements within a transaction succeed, then all of the data modifications can be made permanent by finalizing the transaction with a [COMMIT](/docs/reference/query-language/statements/commit) statement at the end. If any statement within a transaction encounters an error or the transaction is manually cancelled ([CANCEL](/docs/reference/query-language/statements/cancel)), then any data modification made within the transaction is rolled back, and will not become a permanent part of the database.
 
 ### Statement syntax
 
-import RailroadDiagram from "@components/RailroadDiagram.astro";
-import Tabs from "@components/Tabs/Tabs.astro";
-import TabItem from "@components/Tabs/TabItem.astro";
 
-<Tabs syncKey="begin-statement">
+<Tabs synckey="begin-statement">
   <TabItem label="SurrealQL Syntax">
 
 ```syntax title="SurrealQL Syntax"
@@ -25,22 +21,8 @@ BEGIN [ TRANSACTION ];
   </TabItem>
   <TabItem label="Railroad Diagram">
 
-export const beginAst = {
-  type: "Diagram",
-  padding: [10, 20, 10, 20],
-  children: [
-    {
-      type: "Sequence",
-      children: [
-        { type: "Terminal", text: "BEGIN" },
-        { type: "Optional", child: { type: "Terminal", text: "TRANSACTION" } },
-        { type: "Terminal", text: ";" },
-      ],
-    },
-  ],
-};
 
-<RailroadDiagram ast={beginAst} className="my-6" />
+<RailroadDiagram ast='{"type":"Diagram","padding":[10,20,10,20],"children":[{"type":"Sequence","children":[{"type":"Terminal","text":"BEGIN"},{"type":"Optional","child":{"type":"Terminal","text":"TRANSACTION"}},{"type":"Terminal","text":";"}]}]}' />
 
   </TabItem>
 </Tabs>

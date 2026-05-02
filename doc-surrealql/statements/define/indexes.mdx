@@ -1,18 +1,11 @@
 ---
-sidebar_position: 10
-sidebar_label: DEFINE INDEX
-title: DEFINE INDEX statement | SurrealQL
-description: Just like in other databases, SurrealDB uses indexes to help optimize query performance. An index can consist of one or more fields in a table and can enforce a uniqueness constraint.
+position: 11
+title: DEFINE INDEX
+description: "SurrealDB uses indexes to help optimize query performance. An index can consist of one or more fields in a table and can enforce a uniqueness constraint."
 ---
-import Since from '@components/shared/Since.astro'
-import RailroadDiagram from '@components/RailroadDiagram.astro'
-import Tabs from '@components/Tabs/Tabs.astro'
-import TabItem from '@components/Tabs/TabItem.astro'
-
-import SurrealistMini from "@components/SurrealistMini.astro";
 
 > [!NOTE]
-> Before SurrealDB version 3.0.0-alpha.8, the `FULLTEXT ANALYZER` clause used the syntax `SEARCH ANALYZER`.
+> Before SurrealDB version 3.0.0-beta, the `FULLTEXT ANALYZER` clause used the syntax `SEARCH ANALYZER`.
 
 # `DEFINE INDEX` statement
 
@@ -21,11 +14,11 @@ Just like in other databases, SurrealDB uses indexes to help optimize query perf
 ## Requirements
 
 - You must be authenticated as a root owner or editor, namespace owner or editor, or database owner or editor before you can use the `DEFINE INDEX` statement.
-- [You must select your namespace and database](/docs/surrealql/statements/use) before you can use the `DEFINE INDEX` statement.
+- [You must select your namespace and database](/docs/reference/query-language/statements/use) before you can use the `DEFINE INDEX` statement.
 
 ## Statement syntax
 
-<Tabs syncKey="define-index-statement">
+<Tabs synckey="define-index-statement">
   <TabItem label="SurrealQL Syntax">
 
 ```syntax title="Basic syntax"
@@ -35,6 +28,7 @@ DEFINE INDEX [ OVERWRITE | IF NOT EXISTS ] @name
     [ @special_clause ]
     [ COMMENT @string ]
     [ CONCURRENTLY ]
+    [ DEFER ]
 ```
 
 The `@special_clause` part of the statement is an optional part in which an index can be declared for special usage such as guaranteeing unique values, full-text search, and so on. The available clauses are:
@@ -49,50 +43,8 @@ UNIQUE
   </TabItem>
   <TabItem label="Railroad Diagram">
 
-export const defineIndexAst = {
-  type: "Diagram",
-  padding: [10, 20, 10, 20],
-  children: [
-    { type: "Sequence", children: [
-      { type: "Terminal", text: "DEFINE" },
-      { type: "Terminal", text: "INDEX" },
-      { type: "Optional", child: { type: "Choice", index: 1, children: [
-        { type: "Terminal", text: "OVERWRITE" },
-        { type: "Sequence", children: [ { type: "Terminal", text: "IF" }, { type: "Terminal", text: "NOT" }, { type: "Terminal", text: "EXISTS" } ] }
-      ] } },
-      { type: "NonTerminal", text: "@name" },
-      { type: "Terminal", text: "ON" },
-      { type: "Optional", child: { type: "Terminal", text: "TABLE" } },
-      { type: "NonTerminal", text: "@table" },
-      { type: "Choice", index: 1, children: [ { type: "Terminal", text: "FIELDS" }, { type: "Terminal", text: "COLUMNS" } ] },
-      { type: "NonTerminal", text: "@fields" },
-      { type: "Optional", child: { type: "Choice", index: 1, children: [
-        { type: "Terminal", text: "UNIQUE" },
-        { type: "Terminal", text: "COUNT" },
-        { type: "Sequence", children: [
-          { type: "Terminal", text: "FULLTEXT" },
-          { type: "Terminal", text: "ANALYZER" },
-          { type: "NonTerminal", text: "@analyzer" },
-          { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "BM25" }, { type: "Optional", child: { type: "Terminal", text: "(@k1, @b)" } } ] } },
-          { type: "Optional", child: { type: "Terminal", text: "HIGHLIGHTS" } }
-        ] },
-        { type: "Sequence", children: [
-          { type: "Terminal", text: "HNSW" },
-          { type: "Terminal", text: "DIMENSION" },
-          { type: "NonTerminal", text: "@dimension" },
-          { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "TYPE" }, { type: "NonTerminal", text: "@type" } ] } },
-          { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "DIST" }, { type: "NonTerminal", text: "@distance" } ] } },
-          { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "EFC" }, { type: "NonTerminal", text: "@efc" } ] } },
-          { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "M" }, { type: "NonTerminal", text: "@m" } ] } }
-        ] }
-      ] } },
-      { type: "Optional", child: { type: "Sequence", children: [ { type: "Terminal", text: "COMMENT" }, { type: "NonTerminal", text: "@string" } ] } },
-      { type: "Optional", child: { type: "Terminal", text: "CONCURRENTLY" } }
-    ]}
-  ]
-};
 
-<RailroadDiagram ast={defineIndexAst} className="my-6" />
+<RailroadDiagram ast='{"type":"Diagram","padding":[10,20,10,20],"children":[{"type":"Sequence","children":[{"type":"Terminal","text":"DEFINE"},{"type":"Terminal","text":"INDEX"},{"type":"Optional","child":{"type":"Choice","index":1,"children":[{"type":"Terminal","text":"OVERWRITE"},{"type":"Sequence","children":[{"type":"Terminal","text":"IF"},{"type":"Terminal","text":"NOT"},{"type":"Terminal","text":"EXISTS"}]}]}},{"type":"NonTerminal","text":"@name"},{"type":"Terminal","text":"ON"},{"type":"Optional","child":{"type":"Terminal","text":"TABLE"}},{"type":"NonTerminal","text":"@table"},{"type":"Choice","index":1,"children":[{"type":"Terminal","text":"FIELDS"},{"type":"Terminal","text":"COLUMNS"}]},{"type":"NonTerminal","text":"@fields"},{"type":"Optional","child":{"type":"Choice","index":1,"children":[{"type":"Terminal","text":"UNIQUE"},{"type":"Terminal","text":"COUNT"},{"type":"Sequence","children":[{"type":"Terminal","text":"FULLTEXT"},{"type":"Terminal","text":"ANALYZER"},{"type":"NonTerminal","text":"@analyzer"},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"BM25"},{"type":"Optional","child":{"type":"Terminal","text":"(@k1, @b)"}}]}},{"type":"Optional","child":{"type":"Terminal","text":"HIGHLIGHTS"}}]},{"type":"Sequence","children":[{"type":"Terminal","text":"HNSW"},{"type":"Terminal","text":"DIMENSION"},{"type":"NonTerminal","text":"@dimension"},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"TYPE"},{"type":"NonTerminal","text":"@type"}]}},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"DIST"},{"type":"NonTerminal","text":"@distance"}]}},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"EFC"},{"type":"NonTerminal","text":"@efc"}]}},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"M"},{"type":"NonTerminal","text":"@m"}]}}]}]}},{"type":"Optional","child":{"type":"Sequence","children":[{"type":"Terminal","text":"COMMENT"},{"type":"NonTerminal","text":"@string"}]}},{"type":"Optional","child":{"type":"Terminal","text":"CONCURRENTLY"}}]}]}' />
 
   </TabItem>
 </Tabs>
@@ -130,7 +82,7 @@ value = "NONE"
 DEFINE INDEX userEmailIndex ON TABLE user COLUMNS email UNIQUE;
 ```
 
-The created index can be tested using the [`INFO` statement](/docs/surrealql/statements/info).
+The created index can be tested using the [`INFO` statement](/docs/reference/query-language/statements/info).
 
 ```surql
 INFO FOR TABLE user;
@@ -212,7 +164,7 @@ DEFINE INDEX test ON user FIELDS account, email UNIQUE;
 
 ### Count index
 
-<Since v="v3.0.0-alpha.10" />
+<Since v="v3.0.0" />
 
 An index using the `COUNT` clause is used to maintain a count of the number of records in a table. This is used together with the `count()` function and `GROUP ALL` inside a query. Without a count index, the `count()` function will iterate through the records of a table when it is called.
 
@@ -258,7 +210,7 @@ DEFINE INDEX idx2 ON person FIELD name;
 
 Enables efficient searching through textual data, supporting advanced text-matching features like proximity searches and keyword highlighting.
 
-The [Full-Text search](/docs/surrealdb/models/full-text-search) index helps implement comprehensive search functionalities in applications, such as searching through articles, product descriptions, and user-generated content.
+The [Full-Text search](/docs/learn/data-models/full-text-search/overview) index helps implement comprehensive search functionalities in applications, such as searching through articles, product descriptions, and user-generated content.
 
 Let's create a full-text search index for a `name` field on a `user` table.
 
@@ -275,23 +227,23 @@ value = "NONE"
 
 -- Define the an analyzer with
 DEFINE ANALYZER example_ascii TOKENIZERS class FILTERS ascii;
--- Since 3.0.0-alpha.8: only FULLTEXT used to benefit from concurrent full-text search
+-- Since 3.0.0-beta: only FULLTEXT used to benefit from concurrent full-text search
 DEFINE INDEX userNameIndex ON TABLE user COLUMNS name FULLTEXT ANALYZER example_ascii BM25 HIGHLIGHTS;
 ```
 
 - `SEARCH` or `FULLTEXT`: By using the `SEARCH` keyword, you enable full-text search on the specified column.
-- `ANALYZER ascii`: Uses a custom [analyzer](/docs/surrealql/statements/define/analyzer) called `example_ascii` which uses the class tokenizier and `ascii` filter to analyzing the text input.
+- `ANALYZER ascii`: Uses a custom [analyzer](/docs/reference/query-language/statements/define/analyzer) called `example_ascii` which uses the class tokenizier and `ascii` filter to analyzing the text input.
 - `BM25`: Ranking algorithm used for relevance scoring.
-- `HIGHLIGHTS`: Allows keyword highlighting in search results output when using the [`search::highlight`](/docs/surrealql/functions/database/search#searchhighlight) function
+- `HIGHLIGHTS`: Allows keyword highlighting in search results output when using the [`search::highlight`](/docs/reference/query-language/functions/database-functions/search#searchhighlight) function
 - `FIELDS`: a full-text search index can only be used on one field at a time. To use full-text search on more than one field, use a separate `DEFINE INDEX` statement for each one.
 
 #### `FULLTEXT` vs. `SEARCH`
 
-Since version 3.0.0-alpha.8, using `FULLTEXT ANALYZER` is the syntax used for a text analyzer. The `FULLTEXT` clause allows for more performant [concurrent full-text search](https://github.com/surrealdb/surrealdb/pull/5571), as well as the ability to [use the `OR` operator](https://github.com/surrealdb/surrealdb/pull/6179).
+Since version 3.0.0-beta, using `FULLTEXT ANALYZER` is the syntax used for a text analyzer. The `FULLTEXT` clause allows for more performant [concurrent full-text search](https://github.com/surrealdb/surrealdb/pull/5571), as well as the ability to [use the `OR` operator](https://github.com/surrealdb/surrealdb/pull/6179).
 
 ## Vector search indexes
 
-Vector search indexes in SurrealDB support efficient [k-nearest neighbors](https://en.wikipedia.org/wiki/K-nearest_neighbors_algorithm) (kNN) and [Approximate Nearest Neighbor](https://en.wikipedia.org/wiki/Nearest_neighbor_search) (ANN) operations, which are pivotal in performing similarity searches within complex, high-dimensional datasets and data types. Refer to the [Vector Search Cheat Sheet](docs/surrealdb/models/vector#vector-search-cheat-sheet) for the parameters allowed.
+Vector search indexes in SurrealDB support efficient [k-nearest neighbors](https://en.wikipedia.org/wiki/K-nearest_neighbors_algorithm) (kNN) and [Approximate Nearest Neighbor](https://en.wikipedia.org/wiki/Nearest_neighbor_search) (ANN) operations, which are pivotal in performing similarity searches within complex, high-dimensional datasets and data types. Refer to the [Vector Search Cheat Sheet](/docs/learn/data-models/vector-search/vector-indexes#vector-search-cheat-sheet) for the parameters allowed.
 
 ### Types
 
@@ -316,7 +268,6 @@ DEFINE INDEX idx_mtree_embedding ON Document FIELDS items.embedding HNSW DIMENSI
 
 ### HNSW (Hierarchical Navigable Small World)
 
-<Since v="v1.5.0" />
 
 This method uses a graph-based approach to efficiently navigate and search in high-dimensional spaces.
 While it is an approximate technique, it offers a high-performance balance between speed and accuracy, making it ideal for very large datasets.
@@ -326,9 +277,7 @@ While it is an approximate technique, it offers a high-performance balance betwe
 > Keep in mind the in-memory nature of HNSW when considering system resource allocation.
 
 
-<SurrealistMini
-url="https://app.surrealdb.com/mini?query=CREATE+pts%3A3+SET+point+%3D+%5B8%2C9%2C10%2C11%5D%3B%0A%0ADEFINE+INDEX+mt_pts+ON+pts+FIELDS+point+HNSW+DIMENSION+4+DIST+EUCLIDEAN+EFC+150+M+12%3B%0A%0A%2F%2F+See+output+for+info+on+EFC%2CM%2CMO+AND+LM+%0AINFO+FOR+TABLE+pts%3B%0A%0ASELECT+id+FROM+pts+WHERE+point+%3C%7C10%2C40%7C%3E+%5B2%2C3%2C4%2C5%5D%3B&orientation=horizontal"
-/>
+<SurrealistMini url="https://app.surrealdb.com/mini?query=CREATE+pts%3A3+SET+point+%3D+%5B8%2C9%2C10%2C11%5D%3B%0A%0ADEFINE+INDEX+mt_pts+ON+pts+FIELDS+point+HNSW+DIMENSION+4+DIST+EUCLIDEAN+EFC+150+M+12%3B%0A%0A%2F%2F+See+output+for+info+on+EFC%2CM%2CMO+AND+LM+%0AINFO+FOR+TABLE+pts%3B%0A%0ASELECT+id+FROM+pts+WHERE+point+%3C%7C10%2C40%7C%3E+%5B2%2C3%2C4%2C5%5D%3B&orientation=horizontal" />
 
 In the example above, you may notice the `EFC` and `M` parameters. These are optional to your query but are parameters of the [HNSW algorithm](https://arxiv.org/abs/1603.09320) and can be used to tune the index for better performance.
 
@@ -346,29 +295,27 @@ Used to determine the maximum level ll for a new element during its insertion in
 
 
 > [!NOTE]
-> You can only provide TYPE, M, and EFC. SurrealDB automatically computes M0 and LM with the most appropriate value. If not specified, M AND EFC are set to 12 and 150, respectively.  Refer to the [Vector Search Cheat Sheet](docs/surrealdb/models/vector#vector-search-cheat-sheet) for the parameters allowed.
+> You can only provide TYPE, M, and EFC. SurrealDB automatically computes M0 and LM with the most appropriate value. If not specified, M AND EFC are set to 12 and 150, respectively.  Refer to the [Vector Search Cheat Sheet](/docs/learn/data-models/vector-search/vector-indexes#vector-search-cheat-sheet) for the parameters allowed.
 
 #### Memory cache usage for HNSW indexes
 
-<Since v="v3.0.0-beta.1" />
+<Since v="v3.0.0" />
 
-HNSW vector search uses a bounded memory cache by default, reducing memory spikes and improving stability under load. The default size for the cache is 256 MiB, and can be modified via the `SURREAL_HNSW_CACHE_SIZE` [environment variable](/docs/surrealdb/cli/env).
+HNSW vector search uses a bounded memory cache by default, reducing memory spikes and improving stability under load. The default size for the cache is 256 MiB, and can be modified via the `SURREAL_HNSW_CACHE_SIZE` [environment variable](/docs/reference/cli/surrealdb-cli/environment-variables).
 
 ### Brute Force method
 
 The Brute Force method is suitable for tasks with smaller datasets or when the highest accuracy is required.
-Brute Force currently supports [Euclidean](/docs/surrealql/functions/database/vector#vectordistanceeuclidean), [Cosine](/docs/surrealql/functions/database/vector#vectorsimilaritycosine), [Manhattan](/docs/surrealql/functions/database/vector#vectordistancemanhattan) and [Minkowski](/docs/surrealql/functions/database/vector#vectordistanceminkowski) distance functions.
+Brute Force currently supports [Euclidean](/docs/reference/query-language/functions/database-functions/vector#vectordistanceeuclidean), [Cosine](/docs/reference/query-language/functions/database-functions/vector#vectorsimilaritycosine), [Manhattan](/docs/reference/query-language/functions/database-functions/vector#vectordistancemanhattan) and [Minkowski](/docs/reference/query-language/functions/database-functions/vector#vectordistanceminkowski) distance functions.
 
-In the example below, the query searches for points closest to the vector `[2,3,4,5]` and uses [vector functions](/docs/surrealql/functions/database/vector) to calculate the distance between two points, indicated by `<|2|>`.
+In the example below, the query searches for points closest to the vector `[2,3,4,5]` and uses [vector functions](/docs/reference/query-language/functions/database-functions/vector) to calculate the distance between two points, indicated by `<|2|>`.
 
-<SurrealistMini
-url="https://app.surrealdb.com/mini?query=CREATE+pts%3A1+SET+point+%3D+%5B1%2C2%2C3%2C4%5D%3B%0ACREATE+pts%3A2+SET+point+%3D+%5B4%2C5%2C6%2C7%5D%3B%0ACREATE+pts%3A3+SET+point+%3D+%5B8%2C9%2C10%2C11%5D%3B%0ALET+%24pt+%3D+%5B2%2C3%2C4%2C5%5D%3B%0ASELECT+id%2C+vector%3A%3Adistance%3A%3Aeuclidean%28point%2C+%24pt%29+AS+dist+FROM+pts+WHERE+point+%3C%7C2%2CEUCLIDEAN%7C%3E+%24pt%3B%0ASELECT+id+FROM+pts+WHERE+point+%3C%7C2%7C%3E+%24pt+EXPLAIN%3B&orientation=horizontal"
-/>
+<SurrealistMini url="https://app.surrealdb.com/mini?query=CREATE+pts%3A1+SET+point+%3D+%5B1%2C2%2C3%2C4%5D%3B%0ACREATE+pts%3A2+SET+point+%3D+%5B4%2C5%2C6%2C7%5D%3B%0ACREATE+pts%3A3+SET+point+%3D+%5B8%2C9%2C10%2C11%5D%3B%0ALET+%24pt+%3D+%5B2%2C3%2C4%2C5%5D%3B%0ASELECT+id%2C+vector%3A%3Adistance%3A%3Aeuclidean%28point%2C+%24pt%29+AS+dist+FROM+pts+WHERE+point+%3C%7C2%2CEUCLIDEAN%7C%3E+%24pt%3B%0ASELECT+id+FROM+pts+WHERE+point+%3C%7C2%7C%3E+%24pt+EXPLAIN%3B&orientation=horizontal" />
 
 
 ## Verifying Index Utilization in Queries
 
-The [`EXPLAIN` clause](/docs/surrealql/statements/select#the-explain-clause) from SurrealQL helps you understand the execution plan of the query and provides transparency around index utilization.
+The [`EXPLAIN` clause](/docs/reference/query-language/statements/select#the-explain-clause) from SurrealQL helps you understand the execution plan of the query and provides transparency around index utilization.
 
 ```surql
 SELECT * FROM user WHERE email='test@surrealdb.com' EXPLAIN FULL;
@@ -400,9 +347,8 @@ It also reveals details about which `operation` was used by the query planner an
 
 ## Rebuilding Indexes
 
-<Since v="v1.5.0" />
 
-Indexes can be rebuilt using the [`REBUILD`](/docs/surrealql/statements/rebuild) statement. This can be useful when you want to update the index definition or when you want to rebuild the index to optimize performance.
+Indexes can be rebuilt using the [`REBUILD`](/docs/reference/query-language/statements/rebuild) statement. This can be useful when you want to update the index definition or when you want to rebuild the index to optimize performance.
 
 You may want to rebuild an index overtime to ensure that the index is up-to-date with the latest data in the table.
 
@@ -420,7 +366,6 @@ REBUILD INDEX userEmailIndex ON user;
 
 ## Using `IF NOT EXISTS` clause
 
-<Since v="v1.3.0" />
 
 The `IF NOT EXISTS` clause can be used to define an index only if it does not already exist. You should use the `IF NOT EXISTS` clause when defining a index in SurrealDB if you want to ensure that the index is only created if it does not already exist. If the index already exists, the `DEFINE INDEX` statement will return an error.
 
@@ -462,7 +407,7 @@ DEFINE INDEX OVERWRITE example ON example FIELDS example;
 
 <Since v="v2.0.0" />
 
-Building indexes can be lengthy and may time out before they're completed. Use the `CONCURRENTLY` option to build the index without blocking operations. The statement will return immediately, allowing you to monitor the index-building progress by executing the [INFO](/docs/surrealql/statements/info) statement.
+Building indexes can be lengthy and may time out before they're completed. Use the `CONCURRENTLY` option to build the index without blocking operations. The statement will return immediately, allowing you to monitor the index-building progress by executing the [INFO](/docs/reference/query-language/statements/info) statement.
 
 ```surql
 -- Create an INDEX concurrently
@@ -516,10 +461,72 @@ When both stages are complete, the index status changes to **ready**, meaning th
 }
 ```
 
+## Using the `ANY`/`ALL` operators for string indexes
+
+<Since v="v2.4.0" />
+
+An index defined on a string value can be used via the operators `CONTAINSANY`, `ALLINSIDE`, or `ANYINSIDE`. The operator `CONTAINS`, however, will not use a defined index as `CONTAINS` is used for substring matches between strings themselves as opposed to an index lookup.
+
+```surql
+/**[test]
+
+[[test.results]]
+value = "NONE"
+
+[[test.results]]
+value = "NONE"
+
+[[test.results]]
+value = "[{ id: account:billy, name: 'Billy McConnell' }]"
+
+[[test.results]]
+value = "[{ id: account:billy, name: 'Billy McConnell' }]"
+
+[[test.results]]
+value = "[{ id: account:billy, name: 'Billy McConnell' }]"
+
+[[test.results]]
+value = "[{ id: account:billy, name: 'Billy McConnell' }], [{ detail: { direction: 'forward', table: 'account' }, operation: 'Iterate Table' }, { detail: { type: 'Memory' }, operation: 'Collector' }, { detail: { type: 'KeysAndValues' }, operation: 'RecordStrategy' }, { detail: { count: 1 }, operation: 'Fetch' }]"
+
+[[test.results]]
+value = "[{ detail: { plan: { index: 'name_index', operator: 'union', value: ['Billy McConnell'] }, table: 'account' }, operation: 'Iterate Index' }, { detail: { type: 'Memory' }, operation: 'Collector' }, { detail: { type: 'KeysAndValues' }, operation: 'RecordStrategy' }, { detail: { count: 1 }, operation: 'Fetch' }]"
+
+*/
+
+DEFINE FIELD name ON account TYPE string;
+DEFINE INDEX name_index ON account FIELDS name;
+
+CREATE account:billy SET name = "Billy McConnell";
+
+-- Both return the user Billy McConnell
+SELECT * FROM account WHERE name CONTAINS "Billy McConnell";
+SELECT * FROM account WHERE name CONTAINSANY ["Billy McConnell"];
+
+-- However, CONTAINS does not use the index
+SELECT * FROM account WHERE name CONTAINS "Billy McConnell" EXPLAIN FULL;
+-- CONTAINSANY + putting the value inside an array will use the index
+SELECT * FROM account WHERE name CONTAINSANY ["Billy McConnell"] EXPLAIN FULL;
+```
+
+## The `DEFER` clause
+
+<Since v="v2.5.0" />
+
+Index updates in SurrealDB occur synchronously during document operations. This ensures **immediate consistency**, in which all reads return the most recent write. However, this can become a bottleneck during high-volume parallel ingestion, leading to write-write conflicts and increased latency, particularly with Full-Text or Vector indexes.
+
+The `DEFER` clause can be used in this case if **eventual consistency** is acceptable, namely a setting in which reads may return stale data for a short period, but will eventually converge to the most recent write. An index with this clause will be enqueued in a persistent background queue so that ingestion and indexing are decoupled.
+
+```surql
+DEFINE ANALYZER simple TOKENIZERS blank,class FILTERS lowercase;
+DEFINE INDEX title_index ON blog FIELDS title SEARCH ANALYZER simple BM25(1.2,0.75) HIGHLIGHTS DEFER;
+```
+
+Note: As unique indexes offer a guarantee that no records that contravene the index will ever exist, the `UNIQUE` clause cannot be used together with `DEFER`.
+
 ## Performance Implications
 
 When defining indexes, it's essential to consider the fields most frequently queried or used to optimize performance.
 
-Indexes may improve the performance of SurrealQL statements. This may not be noticeable with small tables but it can be significant for large tables; especially when the indexed fields are used in the `WHERE` clause of a [`SELECT`](/docs/surrealql/statements/insert) statement.
+Indexes may improve the performance of SurrealQL statements. This may not be noticeable with small tables but it can be significant for large tables; especially when the indexed fields are used in the `WHERE` clause of a [`SELECT`](/docs/reference/query-language/statements/insert) statement.
 
-Indexes can also impact the performance of write operations ([INSERT](/docs/surrealql/statements/insert), [UPDATE](/docs/surrealql/statements/update), [DELETE](/docs/surrealql/statements/delete)) since the index needs to be updated accordingly. Therefore, it's essential to balance the need for read performance with write performance.
+Indexes can also impact the performance of write operations ([INSERT](/docs/reference/query-language/statements/insert), [UPDATE](/docs/reference/query-language/statements/update), [DELETE](/docs/reference/query-language/statements/delete)) since the index needs to be updated accordingly. Therefore, it's essential to balance the need for read performance with write performance.

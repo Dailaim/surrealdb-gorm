@@ -1,21 +1,17 @@
 ---
-sidebar_position: 6
-sidebar_label: CONTINUE
-title: CONTINUE statement | SurrealQL
-description: The CONTINUE statement can be used to skip an iteration of a loop, like within the FOR statement
+position: 7
+title: CONTINUE
+description: "The CONTINUE statement can be used to skip an iteration of a loop, like within the FOR statement"
 ---
 
 # `CONTINUE` statement
 
-The CONTINUE statement can be used to skip an iteration of a loop, like within the [FOR statement](/docs/surrealql/statements/for).
+The CONTINUE statement can be used to skip an iteration of a loop, like within the [FOR statement](/docs/reference/query-language/statements/for).
 
-import RailroadDiagram from '@components/RailroadDiagram.astro'
-import Tabs from '@components/Tabs/Tabs.astro'
-import TabItem from '@components/Tabs/TabItem.astro'
 
 ### Statement syntax
 
-<Tabs syncKey="continue-statement">
+<Tabs synckey="continue-statement">
   <TabItem label="SurrealQL Syntax">
 
 ```syntax title="SurrealQL Syntax"
@@ -25,17 +21,8 @@ CONTINUE
   </TabItem>
   <TabItem label="Railroad Diagram">
 
-export const continueAst = {
-  type: "Diagram",
-  padding: [10, 20, 10, 20],
-  children: [
-    { type: "Sequence", children: [
-      { type: "Terminal", text: "CONTINUE" }
-    ]}
-  ]
-};
 
-<RailroadDiagram ast={continueAst} className="my-6" />
+<RailroadDiagram ast='{"type":"Diagram","padding":[10,20,10,20],"children":[{"type":"Sequence","children":[{"type":"Terminal","text":"CONTINUE"}]}]}' />
 
   </TabItem>
 </Tabs>
