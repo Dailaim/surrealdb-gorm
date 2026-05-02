@@ -205,6 +205,7 @@ func (dialector *Dialector) PrepareContext(ctx context.Context, query string) (*
 }
 
 func (dialector *Dialector) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+
 	// Panic removed. Logging raw SQL.
 	fmt.Fprintf(os.Stderr, "DEBUG RAW SQL: %s\n", query)
 
@@ -271,6 +272,16 @@ func (dialector *Dialector) ExecContext(ctx context.Context, query string, args 
 			newSetPart := strings.Join(cleanParts, ", ")
 			query = beforeSet + newSetPart + " " + afterSet
 			fmt.Fprintf(os.Stderr, "DEBUG SANITIZED SQL: %s\n", query)
+		}
+	}
+
+	// Translate standard SQL DELETE FROM to SurrealQL DELETE
+	if len(query) > 12 && strings.HasPrefix(strings.ToUpper(strings.TrimSpace(query)), "DELETE FROM ") {
+		// Replace "DELETE FROM " (case insensitive) with "DELETE "
+		idx := strings.Index(strings.ToUpper(query), "DELETE FROM ")
+		if idx != -1 {
+			query = query[:idx] + "DELETE " + strings.TrimSpace(query[idx+12:])
+			fmt.Fprintf(os.Stderr, "DEBUG TRANSLATED DELETE: %s\n", query)
 		}
 	}
 

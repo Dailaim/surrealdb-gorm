@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 	"time"
 
@@ -37,6 +38,7 @@ func RegisterCallbacks(db *gorm.DB) {
 	db.Callback().Query().Before("gorm:query").Register("surreal:handle_preload", handlePreloadAsFetch)
 
 	db.Callback().Query().Replace("gorm:query", QueryCallback)
+	db.Callback().Raw().Replace("gorm:raw", RawCallback)
 }
 
 func handlePreloadAsFetch(db *gorm.DB) {
@@ -720,12 +722,14 @@ func UpdateCallback(db *gorm.DB) {
 			// Handle Update Clause (Table vs Record ID)
 			handledUpdate := false
 			if model, ok := db.Statement.Model.(TypesM.Identifiable); ok {
-				// Use explicit record ID
-				db.Statement.Clauses["UPDATE"] = clause.Clause{
-					Name:       "UPDATE",
-					Expression: clause.Expr{SQL: model.GetID().String()},
+				if id := model.GetID(); id != nil {
+					// Use explicit record ID
+					db.Statement.Clauses["UPDATE"] = clause.Clause{
+						Name:       "UPDATE",
+						Expression: clause.Expr{SQL: id.String()},
+					}
+					handledUpdate = true
 				}
-				handledUpdate = true
 			}
 
 			if !handledUpdate {
@@ -884,9 +888,11 @@ func DeleteCallback(db *gorm.DB) {
 			db.Statement.AddClauseIfNotExists(clause.Update{}) // Switch to UPDATE
 
 			if model, ok := db.Statement.Model.(TypesM.Identifiable); ok {
-				db.Statement.Clauses["UPDATE"] = clause.Clause{
-					Name:       "UPDATE",
-					Expression: clause.Expr{SQL: model.GetID().String()},
+				if id := model.GetID(); id != nil {
+					db.Statement.Clauses["UPDATE"] = clause.Clause{
+						Name:       "UPDATE",
+						Expression: clause.Expr{SQL: id.String()},
+					}
 				}
 			}
 
@@ -909,6 +915,13 @@ func DeleteCallback(db *gorm.DB) {
 	executeSQL(db)
 }
 
+func RawCallback(db *gorm.DB) {
+	if db.Error != nil {
+		return
+	}
+	executeSQL(db)
+}
+
 func executeSQL(db *gorm.DB) {
 	dialector := db.Dialector.(*Dialector)
 	sql := db.Statement.SQL.String()
@@ -927,36 +940,52 @@ func executeSQL(db *gorm.DB) {
 	// Replace standard SQL <> with SurrealDB !=
 	sql = strings.ReplaceAll(sql, "<>", "!=")
 
-	// Hack: Rewrite association count queries for edge tables
-	if strings.Contains(sql, "SELECT count(*)") && strings.Contains(sql, " JOIN ") {
-		parts := strings.Split(sql, " JOIN ")
-		if len(parts) > 1 {
-			joinPart := strings.TrimSpace(parts[1])
-			tableName := strings.Split(joinPart, " ")[0]
-			tableName = strings.ReplaceAll(tableName, "`", "")
-			
-			if canonical, ok := dialector.FindEdgeTable(tableName); ok {
-				var ownerField string
-				if strings.Contains(sql, ".`in` = ") {
-					ownerField = "in"
-				} else if strings.Contains(sql, ".`out` = ") {
-					ownerField = "out"
-				}
-				if ownerField != "" {
-					idx := strings.Index(sql, ".`"+ownerField+"` = $p")
-					if idx != -1 {
-						pstart := idx + len(".`"+ownerField+"` = ")
-						pend := pstart
-						for pend < len(sql) && (sql[pend] == '$' || sql[pend] == 'p' || (sql[pend] >= '0' && sql[pend] <= '9')) {
-							pend++
+	// Hack: Rewrite count queries
+	// GORM generates: SELECT count(*) FROM `table`
+	// SurrealDB expects: SELECT count() FROM `table` GROUP ALL
+	if strings.Contains(sql, "SELECT count(*)") || strings.Contains(sql, "SELECT count(1)") {
+		sql = strings.ReplaceAll(sql, "count(*)", "count()")
+		sql = strings.ReplaceAll(sql, "count(1)", "count()")
+
+		if !strings.Contains(strings.ToUpper(sql), "GROUP ALL") {
+			sql = sql + " GROUP ALL"
+		}
+
+		// Additional logic for edge table association count
+		if strings.Contains(sql, " JOIN ") {
+			dialector, _ := db.Dialector.(*Dialector)
+			parts := strings.Split(sql, " FROM `")
+			if len(parts) == 2 && dialector != nil {
+				tablePart := strings.Split(parts[1], "`")[0]
+				canonical, ok := dialector.FindEdgeTable(tablePart)
+				if ok {
+					var ownerField string
+					for _, param := range []string{"in", "out"} {
+						if strings.Contains(sql, ".`"+param+"` = $p") {
+							ownerField = param
+							break
 						}
-						param := sql[pstart:pend]
-						sql = fmt.Sprintf("SELECT count() FROM `%s` WHERE `%s` = %s GROUP ALL", canonical, ownerField, param)
+					}
+					if ownerField != "" {
+						idx := strings.Index(sql, ".`"+ownerField+"` = $p")
+						if idx != -1 {
+							pstart := idx + len(".`"+ownerField+"` = ")
+							pend := pstart
+							for pend < len(sql) && (sql[pend] == '$' || sql[pend] == 'p' || (sql[pend] >= '0' && sql[pend] <= '9')) {
+								pend++
+							}
+							param := sql[pstart:pend]
+							sql = fmt.Sprintf("SELECT count() FROM `%s` WHERE `%s` = %s GROUP ALL", canonical, ownerField, param)
+						}
 					}
 				}
 			}
 		}
 	}
+
+	// Translate GORM pagination syntax to SurrealDB
+	// GORM generates LIMIT X OFFSET Y -> SurrealDB expects LIMIT X START Y
+	sql = strings.ReplaceAll(sql, " OFFSET ", " START ")
 
 	// Hack: Remove table prefixes from SQL
 	if actualTable != "" {
@@ -964,6 +993,14 @@ func executeSQL(db *gorm.DB) {
 		sql = strings.ReplaceAll(sql, quotedTable, "")
 		// Also handle "table." without backticks just in case if users write raw sql
 		sql = strings.ReplaceAll(sql, fmt.Sprintf("%s.", actualTable), "")
+	}
+
+	// Translate standard SQL DELETE FROM to SurrealQL DELETE
+	if len(sql) > 12 && strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "DELETE FROM ") {
+		idx := strings.Index(strings.ToUpper(sql), "DELETE FROM ")
+		if idx != -1 {
+			sql = sql[:idx] + "DELETE " + strings.TrimSpace(sql[idx+12:])
+		}
 	}
 
 	// Hack: Remove IS NULL check for Soft Delete compatibility
@@ -1016,6 +1053,22 @@ func executeSQL(db *gorm.DB) {
 
 		params[fmt.Sprintf("p%d", i+1)] = v
 	}
+
+	// Hack: SurrealDB has sporadic issues with parameterized LIMIT and START over its interfaces.
+	// Since LIMIT and START are guaranteed to be integers from GORM, we can safely inline them.
+	inlineRegex := regexp.MustCompile(`(LIMIT|START)\s+\$p(\d+)`)
+	sql = inlineRegex.ReplaceAllStringFunc(sql, func(match string) string {
+		parts := strings.Split(match, "$p")
+		if len(parts) == 2 {
+			paramKey := "p" + parts[1]
+			if val, ok := params[paramKey]; ok {
+				// Remove from params map so it's not sent redundantly
+				delete(params, paramKey)
+				return fmt.Sprintf("%s %v", strings.TrimSpace(parts[0]), val)
+			}
+		}
+		return match
+	})
 
 	// Execute
 	results, err := surrealdb.Query[interface{}](db.Statement.Context, dialector.Conn, sql, params)
