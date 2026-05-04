@@ -1003,6 +1003,14 @@ func executeSQL(db *gorm.DB) {
 		}
 	}
 
+	// Translate standard SQL DELETE FROM to SurrealQL DELETE
+	if len(sql) > 12 && strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "DELETE FROM ") {
+		idx := strings.Index(strings.ToUpper(sql), "DELETE FROM ")
+		if idx != -1 {
+			sql = sql[:idx] + "DELETE " + strings.TrimSpace(sql[idx+12:])
+		}
+	}
+
 	// Hack: Remove IS NULL check for Soft Delete compatibility
 	sql = strings.ReplaceAll(sql, " AND (`deleted_at` IS NULL)", "")
 
@@ -1138,8 +1146,10 @@ func executeSQL(db *gorm.DB) {
 			// Custom mapping for Count queries where Dest is an integer pointer
 			// and SurrealDB returns {"count": X}
 			if destVal.CanSet() && (destVal.Kind() == reflect.Int64 || destVal.Kind() == reflect.Int) {
+				fmt.Printf("DEBUG DATA: %T %+v\n", dataToUnmarshal, dataToUnmarshal)
 				if m, ok := dataToUnmarshal.(map[string]interface{}); ok {
 					if c, ok := m["count"]; ok {
+						fmt.Printf("COUNT TYPE: %T\n", c)
 						if cFloat, ok := c.(float64); ok {
 							destVal.SetInt(int64(cFloat))
 							return
