@@ -64,3 +64,13 @@ func (s *SliceLink[T]) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalJSON serializes the slice of links.
+func (s SliceLink[T]) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]Link[T](s))
+}
+
+// GormDataType returns the GORM data type for this slice of links.
+func (SliceLink[T]) GormDataType() string {
+	return "array<record>"
+}
+
