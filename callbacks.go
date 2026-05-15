@@ -954,28 +954,83 @@ func executeSQL(db *gorm.DB) {
 		// Additional logic for edge table association count
 		if strings.Contains(sql, " JOIN ") {
 			dialector, _ := db.Dialector.(*Dialector)
-			parts := strings.Split(sql, " FROM `")
-			if len(parts) == 2 && dialector != nil {
-				tablePart := strings.Split(parts[1], "`")[0]
-				canonical, ok := dialector.FindEdgeTable(tablePart)
-				if ok {
-					var ownerField string
-					for _, param := range []string{"in", "out"} {
-						if strings.Contains(sql, ".`"+param+"` = $p") {
-							ownerField = param
-							break
+			if dialector != nil {
+				rewritten := false
+
+				// Case 1: The FROM table itself is the edge table.
+				parts := strings.Split(sql, " FROM `")
+				if len(parts) == 2 {
+					tablePart := strings.Split(parts[1], "`")[0]
+					if canonical, ok := dialector.FindEdgeTable(tablePart); ok {
+						var ownerField string
+						for _, param := range []string{"in", "out"} {
+							if strings.Contains(sql, ".`"+param+"` = $p") {
+								ownerField = param
+								break
+							}
+						}
+						if ownerField != "" {
+							idx := strings.Index(sql, ".`"+ownerField+"` = $p")
+							if idx != -1 {
+								pstart := idx + len(".`"+ownerField+"` = ")
+								pend := pstart
+								for pend < len(sql) && (sql[pend] == '$' || sql[pend] == 'p' || (sql[pend] >= '0' && sql[pend] <= '9')) {
+									pend++
+								}
+								param := sql[pstart:pend]
+								sql = fmt.Sprintf("SELECT count() FROM `%s` WHERE `%s` = %s GROUP ALL", canonical, ownerField, param)
+								rewritten = true
+							}
 						}
 					}
-					if ownerField != "" {
-						idx := strings.Index(sql, ".`"+ownerField+"` = $p")
-						if idx != -1 {
-							pstart := idx + len(".`"+ownerField+"` = ")
-							pend := pstart
-							for pend < len(sql) && (sql[pend] == '$' || sql[pend] == 'p' || (sql[pend] >= '0' && sql[pend] <= '9')) {
-								pend++
+				}
+
+				// Case 2: The edge table is in the JOIN clause.
+				// Rewrite to SurrealDB graph traversal: $p1->wishlists->products
+				if !rewritten {
+					joinRe := regexp.MustCompile("JOIN `([^`]+)` ON")
+					matches := joinRe.FindStringSubmatch(sql)
+					if len(matches) >= 2 {
+						joinTable := matches[1]
+						if canonical, ok := dialector.FindEdgeTable(joinTable); ok {
+							var ownerField, param string
+							for _, field := range []string{"in", "out"} {
+								paramRe := regexp.MustCompile(fmt.Sprintf("`%s`\\.`%s` = (\\$p\\d+)", regexp.QuoteMeta(canonical), field))
+								pm := paramRe.FindStringSubmatch(sql)
+								if len(pm) >= 2 {
+									ownerField = field
+									param = pm[1]
+									break
+								}
 							}
-							param := sql[pstart:pend]
-							sql = fmt.Sprintf("SELECT count() FROM `%s` WHERE `%s` = %s GROUP ALL", canonical, ownerField, param)
+							if ownerField != "" && param != "" {
+								fromRe := regexp.MustCompile("FROM `([^`]+)`")
+								fm := fromRe.FindStringSubmatch(sql)
+								targetTable := ""
+								if len(fm) >= 2 {
+									targetTable = fm[1]
+								}
+								if targetTable != "" {
+									var traversal string
+									if ownerField == "in" {
+										traversal = fmt.Sprintf("%s->%s->%s", param, canonical, targetTable)
+									} else {
+										traversal = fmt.Sprintf("%s<-%s<-%s", param, canonical, targetTable)
+									}
+									// Extract WHERE clause, excluding any trailing GROUP ALL
+									whereClause := ""
+									whereIdx := strings.Index(strings.ToUpper(sql), " WHERE ")
+									if whereIdx != -1 {
+										end := len(sql)
+										groupIdx := strings.Index(strings.ToUpper(sql[whereIdx:]), " GROUP ALL")
+										if groupIdx != -1 {
+											end = whereIdx + groupIdx
+										}
+										whereClause = sql[whereIdx:end]
+									}
+									sql = fmt.Sprintf("SELECT count() FROM %s%s GROUP ALL", traversal, whereClause)
+								}
+							}
 						}
 					}
 				}
@@ -1078,6 +1133,9 @@ func executeSQL(db *gorm.DB) {
 		return match
 	})
 
+	// Log final query for debugging
+	fmt.Printf("[SURREALQL] %s | params=%+v\n", sql, params)
+
 	// Execute
 	results, err := surrealdb.Query[interface{}](db.Statement.Context, dialector.Conn, sql, params)
 	if err != nil {
@@ -1150,9 +1208,21 @@ func executeSQL(db *gorm.DB) {
 				if m, ok := dataToUnmarshal.(map[string]interface{}); ok {
 					if c, ok := m["count"]; ok {
 						fmt.Printf("COUNT TYPE: %T\n", c)
-						if cFloat, ok := c.(float64); ok {
-							destVal.SetInt(int64(cFloat))
+						switch cv := c.(type) {
+						case float64:
+							destVal.SetInt(int64(cv))
 							return
+						case uint64:
+							destVal.SetInt(int64(cv))
+							return
+						case int64:
+							destVal.SetInt(cv)
+							return
+						case json.Number:
+							if iv, err := cv.Int64(); err == nil {
+								destVal.SetInt(iv)
+								return
+							}
 						}
 					}
 				}
