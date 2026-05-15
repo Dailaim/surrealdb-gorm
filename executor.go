@@ -249,25 +249,15 @@ func executeSQL(db *gorm.DB) {
 				}
 			}
 
-			// Custom mapping for Count queries where Dest is an integer pointer
+			// Custom mapping for Count queries where Dest is an integer pointer.
+			// SurrealDB returns numbers as float64, int64, uint64, or json.Number
+			// depending on the driver and value magnitude.
 			if destVal.CanSet() && (destVal.Kind() == reflect.Int64 || destVal.Kind() == reflect.Int) {
 				if m, ok := dataToUnmarshal.(map[string]interface{}); ok {
 					if c, ok := m["count"]; ok {
-						switch cv := c.(type) {
-						case float64:
-							destVal.SetInt(int64(cv))
+						if iv, err := TypesM.ToInt64(c); err == nil {
+							destVal.SetInt(iv)
 							return
-						case uint64:
-							destVal.SetInt(int64(cv))
-							return
-						case int64:
-							destVal.SetInt(cv)
-							return
-						case json.Number:
-							if iv, err := cv.Int64(); err == nil {
-								destVal.SetInt(iv)
-								return
-							}
 						}
 					}
 				}
