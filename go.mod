@@ -3,7 +3,8 @@ module github.com/dailaim/surrealdb-gorm
 go 1.25.5
 
 require (
-	github.com/surrealdb/surrealdb.go v1.0.0
+	github.com/shopspring/decimal v1.4.0
+	github.com/surrealdb/surrealdb.go v1.4.0
 	gorm.io/gorm v1.31.1
 )
 
