@@ -176,16 +176,7 @@ func executeSQL(db *gorm.DB) {
 			params[fmt.Sprintf("p%d", i+1)] = rid
 			continue
 		}
-		if m, ok := v.(json.Marshaler); ok {
-			if b, err := m.MarshalJSON(); err == nil {
-				var iv interface{}
-				if err := json.Unmarshal(b, &iv); err == nil {
-					params[fmt.Sprintf("p%d", i+1)] = iv
-					continue
-				}
-			}
-		}
-		params[fmt.Sprintf("p%d", i+1)] = v
+		params[fmt.Sprintf("p%d", i+1)] = TypesM.ToSDKValue(v)
 	}
 
 	// Inline LIMIT and START params

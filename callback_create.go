@@ -191,7 +191,7 @@ func CreateCallback(db *gorm.DB) {
 				}
 				val, isZero := field.ValueOf(db.Statement.Context, db.Statement.ReflectValue)
 				if !isZero {
-					dataMap[field.DBName] = val
+					dataMap[field.DBName] = TypesM.ToSDKValue(val)
 				}
 			}
 			createData = dataMap

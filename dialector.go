@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
+	TypesM "github.com/dailaim/surrealdb-gorm/types"
 	"github.com/surrealdb/surrealdb.go"
-	sdkModels "github.com/surrealdb/surrealdb.go/pkg/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/migrator"
@@ -121,6 +121,11 @@ func (dialector *Dialector) Migrator(db *gorm.DB) gorm.Migrator {
 }
 
 func (dialector *Dialector) DataTypeOf(field *schema.Field) string {
+	// 1. Explicit gorm tag overrides everything: gorm:"type:record<person>"
+	if customType, ok := field.TagSettings["TYPE"]; ok && customType != "" {
+		return customType
+	}
+
 	switch field.DataType {
 	case schema.Bool:
 		return "bool"
@@ -136,21 +141,185 @@ func (dialector *Dialector) DataTypeOf(field *schema.Field) string {
 		return "bytes"
 	}
 
-	if field.FieldType == reflect.TypeOf(&sdkModels.RecordID{}) {
+	recordIDType := reflect.TypeOf(TypesM.RecordID{})
+
+	// Single RecordID / *RecordID
+	if field.FieldType == recordIDType || field.FieldType == reflect.PtrTo(recordIDType) {
+		if refTable := inferRecordTable(field); refTable != "" {
+			return fmt.Sprintf("record<%s>", refTable)
+		}
 		return "record"
 	}
 
+	// Single Link[T] / *Link[T]
+	if isLinkType(field.FieldType) {
+		if refTable := inferRecordTable(field); refTable != "" {
+			return fmt.Sprintf("record<%s>", refTable)
+		}
+		return "record"
+	}
+
+	// If GORM classified this as a generic array (from SliceLink[T] etc.),
+	// try to specialise it for slices of RecordID / Link[T].
+	if field.DataType == "array" || field.DataType == "array<record>" {
+		kind := field.FieldType.Kind()
+		ft := field.FieldType
+		if kind == reflect.Ptr {
+			ft = ft.Elem()
+			kind = ft.Kind()
+		}
+		if kind == reflect.Slice || kind == reflect.Array {
+			elem := ft.Elem()
+			if elem.Kind() == reflect.Ptr {
+				elem = elem.Elem()
+			}
+			if elem == recordIDType {
+				if refTable := inferRecordTable(field); refTable != "" {
+					return fmt.Sprintf("array<record<%s>>", refTable)
+				}
+				return "array<record>"
+			}
+			if isLinkType(elem) {
+				if refTable := inferRecordTable(field); refTable != "" {
+					return fmt.Sprintf("array<record<%s>>", refTable)
+				}
+				return "array<record>"
+			}
+		}
+		return "array"
+	}
+
+	// If the field has a custom GormDataType (e.g. geometry(point), decimal, etc.)
+	// field.DataType will hold that string value.
+	if field.DataType != "" {
+		return string(field.DataType)
+	}
+
+	// Fallback for slices / arrays without a custom GormDataType.
 	kind := field.FieldType.Kind()
+	ft := field.FieldType
 	if kind == reflect.Ptr {
-		kind = field.FieldType.Elem().Kind()
+		ft = ft.Elem()
+		kind = ft.Kind()
 	}
 	if kind == reflect.Slice || kind == reflect.Array {
+		elem := ft.Elem()
+		if elem.Kind() == reflect.Ptr {
+			elem = elem.Elem()
+		}
+		if elem == recordIDType {
+			if refTable := inferRecordTable(field); refTable != "" {
+				return fmt.Sprintf("array<record<%s>>", refTable)
+			}
+			return "array<record>"
+		}
+		if isLinkType(elem) {
+			if refTable := inferRecordTable(field); refTable != "" {
+				return fmt.Sprintf("array<record<%s>>", refTable)
+			}
+			return "array<record>"
+		}
 		return "array"
 	}
 	if kind == reflect.Map || kind == reflect.Struct {
 		return "object"
 	}
 	return "string"
+}
+
+// isLinkType reports whether t is types.Link[T] (or a pointer to it).
+func isLinkType(t reflect.Type) bool {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t.Kind() == reflect.Struct && t.Name() == "Link" && t.PkgPath() == "github.com/dailaim/surrealdb-gorm/types"
+}
+
+// inferRecordTable tries to discover the target table for a RecordID / Link[T]
+// field by inspecting GORM relationships (BelongsTo, HasOne, HasMany, Many2Many).
+// If no relationship is found, it falls back to the field-name convention
+// (e.g. AuthorID → Author) or to the generic type T extracted from Link[T] / SliceLink[T].
+func inferRecordTable(field *schema.Field) string {
+	if field.Schema == nil {
+		return ""
+	}
+
+	allRels := make([]*schema.Relationship, 0)
+	for _, rel := range field.Schema.Relationships.Relations {
+		allRels = append(allRels, rel)
+	}
+	for _, rel := range field.Schema.Relationships.BelongsTo {
+		allRels = append(allRels, rel)
+	}
+	for _, rel := range field.Schema.Relationships.HasOne {
+		allRels = append(allRels, rel)
+	}
+	for _, rel := range field.Schema.Relationships.HasMany {
+		allRels = append(allRels, rel)
+	}
+	for _, rel := range field.Schema.Relationships.Many2Many {
+		allRels = append(allRels, rel)
+	}
+
+	for _, rel := range allRels {
+		if rel.Field == field && rel.FieldSchema != nil {
+			return rel.FieldSchema.Table
+		}
+		for _, ref := range rel.References {
+			if ref.ForeignKey == field && rel.FieldSchema != nil {
+				return rel.FieldSchema.Table
+			}
+		}
+	}
+
+	// Fallback 1: field-name convention (AuthorID → Author → relation named Author)
+	name := field.Name
+	if strings.HasSuffix(name, "ID") {
+		name = strings.TrimSuffix(name, "ID")
+	} else if strings.HasSuffix(name, "Id") {
+		name = strings.TrimSuffix(name, "Id")
+	}
+	if rel, ok := field.Schema.Relationships.Relations[name]; ok && rel.FieldSchema != nil {
+		return rel.FieldSchema.Table
+	}
+
+	// Fallback 2: extract generic type T from Link[T] / SliceLink[T] and pluralise it.
+	if gt := extractGenericType(field.FieldType); gt != nil {
+		ns := schema.NamingStrategy{}
+		return ns.TableName(gt.Name())
+	}
+
+	return ""
+}
+
+// extractGenericType walks through a Link[T] or SliceLink[T] type and returns
+// the concrete type T (the generic argument). It returns nil if the type is not
+// a Link or SliceLink.
+func extractGenericType(t reflect.Type) reflect.Type {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.Kind() == reflect.Slice || t.Kind() == reflect.Array {
+		t = t.Elem()
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+	}
+	if t.Kind() != reflect.Struct {
+		return nil
+	}
+	// Must be types.Link[T]
+	if t.Name() != "Link" || t.PkgPath() != "github.com/dailaim/surrealdb-gorm/types" {
+		return nil
+	}
+	// Find the "Data" field (type *T) inside Link[T]
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.Name == "Data" && f.Type.Kind() == reflect.Ptr && f.Type.Elem().Kind() == reflect.Struct {
+			return f.Type.Elem()
+		}
+	}
+	return nil
 }
 
 func (dialector *Dialector) DefaultValueOf(field *schema.Field) clause.Expression {
@@ -169,6 +338,32 @@ func (dialector *Dialector) QuoteTo(writer clause.Writer, str string) {
 
 func (dialector *Dialector) Explain(sql string, vars ...interface{}) string {
 	return sql
+}
+
+// ExplainQuery analyzes a SurrealQL query and returns its execution plan.
+func (d *Dialector) ExplainQuery(ctx context.Context, query string, vars ...interface{}) (*ExplainResult, error) {
+	if d.Conn == nil {
+		return nil, fmt.Errorf("connection not initialized")
+	}
+	params := make(map[string]interface{})
+	for i, v := range vars {
+		params[fmt.Sprintf("p%d", i+1)] = TypesM.ToSDKValue(v)
+	}
+	results, err := surrealdb.Query[ExplainResult](ctx, d.Conn, fmt.Sprintf("EXPLAIN %s", query), params)
+	if err != nil {
+		return nil, err
+	}
+	if len(*results) == 0 {
+		return nil, fmt.Errorf("no explain result")
+	}
+	return &(*results)[0].Result, nil
+}
+
+// ExplainResult holds the output of an EXPLAIN query.
+type ExplainResult struct {
+	Detail  string `json:"detail"`
+	Plan    string `json:"plan"`
+	Reasons string `json:"reasons,omitempty"`
 }
 
 // ConnPool stub implementations (real ones live in driver.go)

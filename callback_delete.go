@@ -13,6 +13,37 @@ import (
 	TypesM "github.com/dailaim/surrealdb-gorm/types"
 )
 
+// hasDeletedAt checks whether the given value (expected to be a struct or pointer
+// to struct) contains a field named "DeletedAt" at any nesting level (embedded).
+func hasDeletedAt(v interface{}) bool {
+	rv := reflect.ValueOf(v)
+	for rv.Kind() == reflect.Ptr {
+		rv = rv.Elem()
+	}
+	if !rv.IsValid() || rv.Kind() != reflect.Struct {
+		return false
+	}
+	return lookUpDeletedAt(rv.Type())
+}
+
+func lookUpDeletedAt(rt reflect.Type) bool {
+	if rt.Kind() != reflect.Struct {
+		return false
+	}
+	for i := 0; i < rt.NumField(); i++ {
+		field := rt.Field(i)
+		if field.Name == "DeletedAt" {
+			return true
+		}
+		if field.Anonymous && field.Type.Kind() == reflect.Struct {
+			if lookUpDeletedAt(field.Type) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func DeleteCallback(db *gorm.DB) {
 	if db.Error != nil {
 		return
@@ -34,6 +65,24 @@ func DeleteCallback(db *gorm.DB) {
 		if edge, ok := rv.Addr().Interface().(localModels.EdgeRelation); ok {
 			if model, ok := db.Statement.Model.(TypesM.Identifiable); ok && model.GetID() != nil {
 				recID := model.GetID()
+
+				// If the edge model has DeletedAt and is not Unscoped, perform soft-delete.
+				if hasDeletedAt(db.Statement.Model) && !db.Statement.Unscoped {
+					_, err := surrealdb.Query[interface{}](
+						db.Statement.Context, dialector.Conn,
+						"UPDATE $id SET deleted_at = time::now()",
+						map[string]interface{}{"id": &recID.RecordID},
+					)
+					if err != nil {
+						db.AddError(err)
+						return
+					}
+					db.RowsAffected = 1
+					_ = edge
+					return
+				}
+
+				// Hard delete for edges without DeletedAt or when Unscoped.
 				results, err := surrealdb.Query[interface{}](
 					db.Statement.Context, dialector.Conn,
 					"DELETE $id",

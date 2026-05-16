@@ -91,19 +91,11 @@ func (dialector *Dialector) ExecContext(ctx context.Context, query string, args 
 		}
 	}
 
-	// Map args to map[string]interface{}
+	// Map args to map[string]interface{} — convert custom types to SDK 1.4
+	// counterparts so CBOR serialization produces SurrealDB-native values.
 	params := make(map[string]interface{})
 	for i, v := range args {
-		if m, ok := v.(json.Marshaler); ok {
-			if b, err := m.MarshalJSON(); err == nil {
-				var iv interface{}
-				if err := json.Unmarshal(b, &iv); err == nil {
-					params[fmt.Sprintf("p%d", i+1)] = iv
-					continue
-				}
-			}
-		}
-		params[fmt.Sprintf("p%d", i+1)] = v
+		params[fmt.Sprintf("p%d", i+1)] = TypesM.ToSDKValue(v)
 	}
 
 	results, err := surrealdb.Query[interface{}](ctx, dialector.Conn, query, params)
