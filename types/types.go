@@ -97,7 +97,7 @@ func (d *Duration) Scan(value interface{}) error {
 }
 
 func (Duration) GormDataType() string {
-	return "string"
+	return "duration"
 }
 
 // Geometry types (manual GeoJSON)

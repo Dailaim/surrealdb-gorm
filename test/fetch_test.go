@@ -9,7 +9,7 @@ import (
 )
 
 type Book struct {
-	models.Schemaless
+	models.BaseModel
 	Title string
 }
 
@@ -18,7 +18,7 @@ func (Book) TableName() string {
 }
 
 type Person struct {
-	models.Schemaless
+	models.BaseModel
 	Name string
 	Book types.Link[Book] `json:"book,omitempty"`
 }
@@ -119,7 +119,7 @@ func TestPreloadFetch(t *testing.T) {
 // ---------------------------------------------------------------------------------------------------------------------
 
 type Node struct {
-	models.Schemaless
+	models.BaseModel
 	Name string           `gorm:"column:name" json:"aaaa"`
 	Next types.Link[Node] `json:"next,omitempty"`
 }

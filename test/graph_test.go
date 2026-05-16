@@ -7,12 +7,11 @@ import (
 	surrealdb "github.com/surrealdb/surrealdb.go"
 
 	"github.com/dailaim/surrealdb-gorm/models"
-	"github.com/dailaim/surrealdb-gorm/types"
 	"gorm.io/gorm"
 )
 
 type Buyer struct {
-	models.Schemaless
+	models.BaseModel
 	Name     string
 	Wishlist []Wishlist `gorm:"-"`
 	Products []Product  `gorm:"many2many:wishlists;joinForeignKey:in;joinReferences:out"`
@@ -22,13 +21,19 @@ type Buyer struct {
 // Extra fields (Name, Year) can only be set via db.Create(&Wishlist{...}).
 // Association.Append creates edges without extra fields.
 type Wishlist struct {
-	models.EdgeSchemaless[Buyer, Product]
+	models.Edge[Buyer, Product]
 	Name string
 	Year int
 }
 
+// SoftEdge is used to test soft-delete on edges.
+type SoftEdge struct {
+	models.EdgeBaseModel[Buyer, Product]
+	Note string
+}
+
 type Product struct {
-	models.Schemaless
+	models.BaseModel
 	Name     string
 	Wishlist []Wishlist `gorm:"-"`
 	Buyers   []Buyer    `gorm:"many2many:wishlists;joinForeignKey:out;joinReferences:in"`
@@ -67,12 +72,7 @@ func TestGraphManyToMany(t *testing.T) {
 
 	// --- 1. Manual edge creation (with extra fields) ---
 	wishlist := Wishlist{
-		EdgeSchemaless: models.EdgeSchemaless[Buyer, Product]{
-			Edge: models.Edge[Buyer, Product]{
-				In:  &types.Link[Buyer]{ID: buyer.ID},
-				Out: &types.Link[Product]{ID: product.ID},
-			},
-		},
+		Edge: models.NewEdge[Buyer, Product](buyer.ID, product.ID),
 		Name: "Alice's Wishlist",
 		Year: 2024,
 	}
@@ -133,12 +133,7 @@ func TestGraphManualEdgeNative(t *testing.T) {
 	}
 
 	edge := Wishlist{
-		EdgeSchemaless: models.EdgeSchemaless[Buyer, Product]{
-			Edge: models.Edge[Buyer, Product]{
-				In:  &types.Link[Buyer]{ID: buyer.ID},
-				Out: &types.Link[Product]{ID: product.ID},
-			},
-		},
+		Edge: models.NewEdge[Buyer, Product](buyer.ID, product.ID),
 		Name: "Native Wishlist",
 		Year: 2025,
 	}
@@ -375,12 +370,7 @@ func TestDeleteEdgeDirect(t *testing.T) {
 	}
 
 	edge := Wishlist{
-		EdgeSchemaless: models.EdgeSchemaless[Buyer, Product]{
-			Edge: models.Edge[Buyer, Product]{
-				In:  &types.Link[Buyer]{ID: buyer.ID},
-				Out: &types.Link[Product]{ID: product.ID},
-			},
-		},
+		Edge: models.NewEdge[Buyer, Product](buyer.ID, product.ID),
 		Name: "Direct Delete Edge",
 	}
 	if err := db.Create(&edge).Error; err != nil {
@@ -406,4 +396,76 @@ func TestDeleteEdgeDirect(t *testing.T) {
 		t.Errorf("edge still exists after db.Delete: %v", (*results)[0].Result[0])
 	}
 	t.Log("[delete edge direct] edge deleted successfully")
+}
+
+// TestSoftDeleteEdge verifies that soft-deleting an edge makes it invisible
+// to normal (non-unscoped) queries, but still retrievable with Unscoped.
+func TestSoftDeleteEdge(t *testing.T) {
+	db := setupDB(t)
+	db.AutoMigrate(&Buyer{}, &Product{}, &SoftEdge{})
+	cleanupGraph(t, db)
+	t.Cleanup(func() { cleanupGraph(t, db) })
+
+	buyer := Buyer{Name: "SoftDeleteBuyer"}
+	product := Product{Name: "SoftDeleteProduct"}
+	if err := db.Create(&buyer).Error; err != nil {
+		t.Fatalf("create buyer: %v", err)
+	}
+	if err := db.Create(&product).Error; err != nil {
+		t.Fatalf("create product: %v", err)
+	}
+
+	edge := SoftEdge{}
+	edge.Edge = models.NewEdge[Buyer, Product](buyer.ID, product.ID)
+	edge.Note = "before delete"
+	if err := db.Create(&edge).Error; err != nil {
+		t.Fatalf("create edge: %v", err)
+	}
+	if edge.ID == nil {
+		t.Fatal("edge ID is nil after create")
+	}
+	t.Logf("edge created with id=%v", edge.ID)
+
+	// Normal query should find the edge
+	var foundNormal []SoftEdge
+	if err := db.Where("in = ?", buyer.ID).Find(&foundNormal).Error; err != nil {
+		t.Fatalf("normal find: %v", err)
+	}
+	if len(foundNormal) != 1 {
+		t.Fatalf("expected 1 edge normally, got %d", len(foundNormal))
+	}
+	t.Logf("normal find: %d edges", len(foundNormal))
+
+	// Soft-delete the edge
+	if err := db.Delete(&edge).Error; err != nil {
+		t.Fatalf("soft delete edge: %v", err)
+	}
+
+	// Normal query should now find nothing (deleted_at is set)
+	var foundAfter []SoftEdge
+	if err := db.Where("in = ?", buyer.ID).Find(&foundAfter).Error; err != nil {
+		t.Fatalf("find after soft delete: %v", err)
+	}
+	if len(foundAfter) != 0 {
+		t.Fatalf("expected 0 edges after soft delete (normal query), got %d", len(foundAfter))
+	}
+	t.Logf("after soft-delete normal find: %d edges", len(foundAfter))
+
+	// Unscoped query should still find it
+	var foundUnscoped []SoftEdge
+	if err := db.Unscoped().Where("in = ?", buyer.ID).Find(&foundUnscoped).Error; err != nil {
+		t.Fatalf("unscoped find after soft delete: %v", err)
+	}
+	t.Logf("unscoped find: %d edges", len(foundUnscoped))
+	for i, e := range foundUnscoped {
+		t.Logf("unscoped edge %d: id=%v deleted_at=%v", i, e.ID, e.DeletedAt)
+	}
+	if len(foundUnscoped) != 1 {
+		t.Fatalf("expected 1 edge with Unscoped, got %d", len(foundUnscoped))
+	}
+	if foundUnscoped[0].DeletedAt == nil {
+		t.Fatal("expected DeletedAt to be set on unscoped edge")
+	}
+
+	t.Log("[soft-delete-edge] passed")
 }

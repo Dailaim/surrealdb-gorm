@@ -22,37 +22,37 @@ import (
 // --- Modelos para grafo multi-nivel ---
 
 type Store struct {
-	models.Schemaless
+	models.BaseModel
 	Name      string
 	Inventory []Product `gorm:"many2many:store_products;joinForeignKey:in;joinReferences:out"`
 }
 
 type Category struct {
-	models.Schemaless
+	models.BaseModel
 	Name     string
 	Products []Product `gorm:"many2many:category_products;joinForeignKey:in;joinReferences:out"`
 }
 
 type StoreProduct struct {
-	models.EdgeSchemaless[Store, Product]
+	models.Edge[Store, Product]
 	Stock int
 }
 
 type CategoryProduct struct {
-	models.EdgeSchemaless[Category, Product]
+	models.Edge[Category, Product]
 	Featured bool
 }
 
 // --- Grafo con ciclos: Person -> Friend -> Person ---
 
 type GraphPerson struct {
-	models.Schemaless
+	models.BaseModel
 	Name    string
 	Friends []GraphPerson `gorm:"many2many:friendships;joinForeignKey:in;joinReferences:out"`
 }
 
 type Friendship struct {
-	models.EdgeSchemaless[GraphPerson, GraphPerson]
+	models.Edge[GraphPerson, GraphPerson]
 	Since time.Time
 }
 
@@ -103,21 +103,11 @@ func TestMultiLevelGraphTraversal(t *testing.T) {
 
 	// Crear edges manuales con extra fields
 	sp := StoreProduct{
-		EdgeSchemaless: models.EdgeSchemaless[Store, Product]{
-			Edge: models.Edge[Store, Product]{
-				In:  &types.Link[Store]{ID: store.ID},
-				Out: &types.Link[Product]{ID: product.ID},
-			},
-		},
+		Edge:  models.NewEdge[Store, Product](store.ID, product.ID),
 		Stock: 42,
 	}
 	cp := CategoryProduct{
-		EdgeSchemaless: models.EdgeSchemaless[Category, Product]{
-			Edge: models.Edge[Category, Product]{
-				In:  &types.Link[Category]{ID: category.ID},
-				Out: &types.Link[Product]{ID: product.ID},
-			},
-		},
+		Edge:     models.NewEdge[Category, Product](category.ID, product.ID),
 		Featured: true,
 	}
 
@@ -322,13 +312,13 @@ func TestBulkGraphOperations(t *testing.T) {
 // ============================================================
 
 type Purchase struct {
-	models.EdgeSchemaless[Buyer, Product]
+	models.Edge[Buyer, Product]
 	Quantity int
 	Price    float64
 }
 
 type View struct {
-	models.EdgeSchemaless[Buyer, Product]
+	models.Edge[Buyer, Product]
 	ViewCount int
 }
 
@@ -349,31 +339,16 @@ func TestMultipleEdgeTypes(t *testing.T) {
 
 	// Crear 3 tipos de edges entre el mismo par
 	wish := Wishlist{
-		EdgeSchemaless: models.EdgeSchemaless[Buyer, Product]{
-			Edge: models.Edge[Buyer, Product]{
-				In:  &types.Link[Buyer]{ID: buyer.ID},
-				Out: &types.Link[Product]{ID: product.ID},
-			},
-		},
+		Edge: models.NewEdge[Buyer, Product](buyer.ID, product.ID),
 		Name: "Wish",
 	}
 	purchase := Purchase{
-		EdgeSchemaless: models.EdgeSchemaless[Buyer, Product]{
-			Edge: models.Edge[Buyer, Product]{
-				In:  &types.Link[Buyer]{ID: buyer.ID},
-				Out: &types.Link[Product]{ID: product.ID},
-			},
-		},
+		Edge:     models.NewEdge[Buyer, Product](buyer.ID, product.ID),
 		Quantity: 3,
 		Price:    99.99,
 	}
 	view := View{
-		EdgeSchemaless: models.EdgeSchemaless[Buyer, Product]{
-			Edge: models.Edge[Buyer, Product]{
-				In:  &types.Link[Buyer]{ID: buyer.ID},
-				Out: &types.Link[Product]{ID: product.ID},
-			},
-		},
+		Edge:      models.NewEdge[Buyer, Product](buyer.ID, product.ID),
 		ViewCount: 42,
 	}
 
@@ -563,22 +538,12 @@ func TestQueryEdgesByExtraFields(t *testing.T) {
 
 	// Crear edges con extra fields diferentes
 	w1 := Wishlist{
-		EdgeSchemaless: models.EdgeSchemaless[Buyer, Product]{
-			Edge: models.Edge[Buyer, Product]{
-				In:  &types.Link[Buyer]{ID: buyer.ID},
-				Out: &types.Link[Product]{ID: p1.ID},
-			},
-		},
+		Edge: models.NewEdge[Buyer, Product](buyer.ID, p1.ID),
 		Name: "OldWish",
 		Year: 2019,
 	}
 	w2 := Wishlist{
-		EdgeSchemaless: models.EdgeSchemaless[Buyer, Product]{
-			Edge: models.Edge[Buyer, Product]{
-				In:  &types.Link[Buyer]{ID: buyer.ID},
-				Out: &types.Link[Product]{ID: p2.ID},
-			},
-		},
+		Edge: models.NewEdge[Buyer, Product](buyer.ID, p2.ID),
 		Name: "NewWish",
 		Year: 2024,
 	}
@@ -936,12 +901,7 @@ func TestCreateEdgeWithoutIDs(t *testing.T) {
 
 	// Edge sin IDs debe fallar
 	edge := Wishlist{
-		EdgeSchemaless: models.EdgeSchemaless[Buyer, Product]{
-			Edge: models.Edge[Buyer, Product]{
-				In:  nil,
-				Out: nil,
-			},
-		},
+		Edge: models.NewEdge[Buyer, Product](nil, nil),
 		Name: "NoIDs",
 	}
 	err := db.Create(&edge).Error

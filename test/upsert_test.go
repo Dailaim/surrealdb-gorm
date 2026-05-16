@@ -8,7 +8,7 @@ import (
 )
 
 type UpsertModel struct {
-	models.Schemaless
+	models.BaseModel
 	Name string
 	Age  int
 }

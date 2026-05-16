@@ -7,7 +7,7 @@ import (
 )
 
 type CustomTagModel struct {
-	models.Schemaless
+	models.BaseModel
 	MyField string `gorm:"column:custom_db_name" json:"myField"`
 }
 

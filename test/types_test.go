@@ -11,7 +11,7 @@ import (
 
 // AllTypes struct to verify support for all requested data types
 type AllTypes struct {
-	models.Schemaless
+	models.BaseModel
 	// Basic Types
 	Bool   bool
 	Int    int
@@ -170,7 +170,7 @@ func TestBytesDirect(t *testing.T) {
 
 	// Define a struct to read back results
 	type BytesStruct struct {
-		models.Schemaless
+		models.BaseModel
 		Data types.Bytes `gorm:"type:bytes"`
 	}
 

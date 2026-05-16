@@ -8,12 +8,12 @@ import (
 )
 
 type Tag struct {
-	models.Schemaless
+	models.BaseModel
 	Name string
 }
 
 type Article struct {
-	models.Schemaless
+	models.BaseModel
 	Title string
 	Tags  types.SliceLink[Tag] `json:"tags,omitempty"`
 }

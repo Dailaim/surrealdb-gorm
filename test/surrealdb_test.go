@@ -17,7 +17,7 @@ func getDialector(db *gorm.DB) *surrealdb.Dialector {
 }
 
 type User struct {
-	models.Schemaless
+	models.BaseModel
 	Name string `json:"name"`
 	Age  int    `json:"age"`
 }

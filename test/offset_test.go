@@ -9,7 +9,7 @@ import (
 )
 
 type OffsetModel struct {
-	models.Schemaless
+	models.BaseModel
 	Name  string
 	Index int
 }

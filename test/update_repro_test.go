@@ -7,7 +7,7 @@ import (
 )
 
 type UserUpdate struct {
-	models.Schemaless
+	models.BaseModel
 	Name string
 	Age  int
 }

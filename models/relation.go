@@ -1,9 +1,9 @@
 package models
 
 import (
-	"database/sql/driver"
-	"encoding/json"
-	"fmt"
+	"reflect"
+
+	"gorm.io/gorm/schema"
 
 	"github.com/dailaim/surrealdb-gorm/types"
 )
@@ -21,7 +21,7 @@ type EdgeRelation interface {
 }
 
 // Edge is the base embedded type for SurrealDB graph edge models.
-// Embed it (or EdgeSchemafull/EdgeSchemaless) in your edge struct.
+// Embed it in your own struct together with BaseModel if you need IDs / timestamps.
 //
 // # Extra fields and Association.Append
 //
@@ -32,12 +32,59 @@ type EdgeRelation interface {
 // value. This is a limitation of the GORM association API and cannot be worked
 // around without a custom helper.
 type Edge[T any, U any] struct {
-	In  *types.Link[T] `gorm:"column:in" json:"in,omitempty"`
-	Out *types.Link[U] `gorm:"column:out" json:"out,omitempty"`
+	ID  *types.RecordID `gorm:"primaryKey;type:record;<-:create" json:"id,omitempty"`
+	In  *types.Link[T]   `gorm:"column:in" json:"in,omitempty"`
+	Out *types.Link[U]   `gorm:"column:out" json:"out,omitempty"`
 }
 
-func (s Edge[T, U]) GormDataType() string {
-	return "Edge"
+func (e *Edge[T, U]) GetID() *types.RecordID {
+	return e.ID
+}
+
+// InTableName returns the GORM table name for the generic type T (the "in" endpoint).
+func (Edge[T, U]) InTableName() string {
+	return tableNameForType[T]()
+}
+
+// OutTableName returns the GORM table name for the generic type U (the "out" endpoint).
+func (Edge[T, U]) OutTableName() string {
+	return tableNameForType[U]()
+}
+
+// tableNameForType derives a SurrealDB table name from a generic type argument.
+// It checks for a TableName() method first, then falls back to GORM naming strategy.
+func tableNameForType[T any]() string {
+	var zero T
+	v := reflect.ValueOf(&zero).Elem()
+
+	// Try pointer receiver: (*T).TableName()
+	if v.CanAddr() {
+		if m := v.Addr().MethodByName("TableName"); m.IsValid() {
+			out := m.Call(nil)
+			if len(out) == 1 && out[0].Kind() == reflect.String {
+				return out[0].String()
+			}
+		}
+	}
+
+	// Try value receiver: (T).TableName()
+	if m := v.MethodByName("TableName"); m.IsValid() {
+		out := m.Call(nil)
+		if len(out) == 1 && out[0].Kind() == reflect.String {
+			return out[0].String()
+		}
+	}
+
+	// Fallback: GORM naming strategy on the type name.
+	rt := v.Type()
+	if rt.Kind() == reflect.Ptr {
+		rt = rt.Elem()
+	}
+	if rt.Kind() == reflect.Struct {
+		ns := schema.NamingStrategy{}
+		return ns.TableName(rt.Name())
+	}
+	return ""
 }
 
 func (s Edge[T, U]) ConectionOut() *types.Link[U] {
@@ -64,50 +111,22 @@ func (s Edge[T, U]) EdgeOut() *types.RecordID {
 	return nil
 }
 
-func (s Edge[T, U]) Value() (driver.Value, error) {
-	// Retornamos bytes JSON para que GORM no trate de analizarlo como relación SQL
-	return json.Marshal(s)
+// NewEdge creates a bare Edge with In/Out links ready to use.
+//
+//	edge := models.NewEdge[Store, Product](store.ID, product.ID)
+func NewEdge[T any, U any](inID, outID *types.RecordID) Edge[T, U] {
+	return Edge[T, U]{
+		In:  &types.Link[T]{ID: inID},
+		Out: &types.Link[U]{ID: outID},
+	}
 }
 
-// Scan implementa sql.Scanner
-func (s *Edge[T, U]) Scan(value interface{}) error {
-	if value == nil {
-		*s = Edge[T, U]{}
-		return nil
-	}
-
-	var bytes []byte
-	switch v := value.(type) {
-	case []byte:
-		bytes = v
-	case string:
-		bytes = []byte(v)
-	default:
-		// Attempt to marshal if it's already an object (like slice of interface)
-		// SurrealDB driver sometimes returns []interface{}
-		b, err := json.Marshal(value)
-		if err != nil {
-			return fmt.Errorf("failed to scan SliceLink: %T, error: %v", value, err)
-		}
-		bytes = b
-	}
-
-	if len(bytes) == 0 {
-		*s = Edge[T, U]{}
-		return nil
-	}
-
-	// Helper to check for basic types array vs object array?
-	// Just unmarshal
-	return json.Unmarshal(bytes, s)
+// SetIn replaces the In side of the edge.
+func (e *Edge[T, U]) SetIn(id *types.RecordID) {
+	e.In = &types.Link[T]{ID: id}
 }
 
-type EdgeSchemafull[T any, U any] struct {
-	Schemafull
-	Edge[T, U]
-}
-
-type EdgeSchemaless[T any, U any] struct {
-	Schemaless
-	Edge[T, U]
+// SetOut replaces the Out side of the edge.
+func (e *Edge[T, U]) SetOut(id *types.RecordID) {
+	e.Out = &types.Link[U]{ID: id}
 }

@@ -7,6 +7,7 @@ import (
 	"reflect"
 
 	"github.com/surrealdb/surrealdb.go/pkg/models"
+	"gorm.io/gorm/schema"
 )
 
 type Identifiable interface {
@@ -150,6 +151,42 @@ func (l Link[T]) MarshalCBOR() ([]byte, error) {
 	return nilCustom.MarshalCBOR()
 }
 
+// GormDataType returns the SurrealDB record type for this Link.
+// It tries to discover the target table for T (via TableName() or reflection)
+// and returns record<tabla> so that SurrealDB knows the exact reference.
 func (Link[T]) GormDataType() string {
-	return "link"
+	var zero T
+	v := reflect.ValueOf(&zero).Elem()
+
+	// Try pointer receiver: (*T).TableName()
+	if v.CanAddr() {
+		addr := v.Addr()
+		if m := addr.MethodByName("TableName"); m.IsValid() {
+			out := m.Call(nil)
+			if len(out) == 1 && out[0].Kind() == reflect.String {
+				return fmt.Sprintf("record<%s>", out[0].String())
+			}
+		}
+	}
+
+	// Try value receiver: (T).TableName()
+	if m := v.MethodByName("TableName"); m.IsValid() {
+		out := m.Call(nil)
+		if len(out) == 1 && out[0].Kind() == reflect.String {
+			return fmt.Sprintf("record<%s>", out[0].String())
+		}
+	}
+
+	// Fallback: derive table name from the type name using GORM naming strategy.
+	rt := v.Type()
+	if rt.Kind() == reflect.Ptr {
+		rt = rt.Elem()
+	}
+	if rt.Kind() == reflect.Struct {
+		ns := schema.NamingStrategy{}
+		table := ns.TableName(rt.Name())
+		return fmt.Sprintf("record<%s>", table)
+	}
+
+	return "record"
 }
