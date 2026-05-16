@@ -4,6 +4,9 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"reflect"
+
+	"gorm.io/gorm/schema"
 )
 
 // SliceLink ayuda a GORM a entender que esto no es una relación, sino un array de links
@@ -70,7 +73,41 @@ func (s SliceLink[T]) MarshalJSON() ([]byte, error) {
 }
 
 // GormDataType returns the GORM data type for this slice of links.
+// It tries to discover the target table for T (via TableName() or reflection)
+// and returns array<record<tabla>> so that SurrealDB knows the exact reference.
 func (SliceLink[T]) GormDataType() string {
-	return "array<record>"
-}
+	var zero T
+	v := reflect.ValueOf(&zero).Elem()
 
+	// Try pointer receiver: (*T).TableName()
+	if v.CanAddr() {
+		addr := v.Addr()
+		if m := addr.MethodByName("TableName"); m.IsValid() {
+			out := m.Call(nil)
+			if len(out) == 1 && out[0].Kind() == reflect.String {
+				return fmt.Sprintf("array<record<%s>>", out[0].String())
+			}
+		}
+	}
+
+	// Try value receiver: (T).TableName()
+	if m := v.MethodByName("TableName"); m.IsValid() {
+		out := m.Call(nil)
+		if len(out) == 1 && out[0].Kind() == reflect.String {
+			return fmt.Sprintf("array<record<%s>>", out[0].String())
+		}
+	}
+
+	// Fallback: derive table name from the type name using GORM naming strategy.
+	rt := v.Type()
+	if rt.Kind() == reflect.Ptr {
+		rt = rt.Elem()
+	}
+	if rt.Kind() == reflect.Struct {
+		ns := schema.NamingStrategy{}
+		table := ns.TableName(rt.Name())
+		return fmt.Sprintf("array<record<%s>>", table)
+	}
+
+	return "array"
+}
