@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/surrealdb/surrealdb.go"
@@ -75,24 +76,31 @@ func CreateCallback(db *gorm.DB) {
 			// If timestamps are present, use native RELATE with time::now() instead
 			// of InsertRelation which ignores extra fields like created_at.
 			if hasTimestamps {
-				timestampSQL := "created_at = time::now(), updated_at = time::now()"
-				var setParts []string
+				params := make(map[string]interface{})
+				setParts := []string{"created_at = time::now()", "updated_at = time::now()"}
+				i := 0
 				for k, v := range extraData {
-					setParts = append(setParts, fmt.Sprintf("%s = %v", k, v))
-				}
-				var setClause string
-				if len(setParts) > 0 {
-					setClause = fmt.Sprintf("%s, %s", timestampSQL, setParts[0])
-					for i := 1; i < len(setParts); i++ {
-						setClause += ", " + setParts[i]
-					}
-				} else {
-					setClause = timestampSQL
+					paramKey := fmt.Sprintf("p%d", i)
+					params[paramKey] = TypesM.ToSDKValue(v)
+					setParts = append(setParts, fmt.Sprintf("%s = $%s", k, paramKey))
+					i++
 				}
 				sql := fmt.Sprintf("RELATE %s -> %s -> %s SET %s",
-					inID.String(), db.Statement.Table, outID.String(), setClause)
-				if err := db.Exec(sql).Error; err != nil {
+					inID.String(), db.Statement.Table, outID.String(),
+					strings.Join(setParts, ", "))
+				var results *[]surrealdb.QueryResult[interface{}]
+				var err error
+				if txConn, ok := db.Statement.ConnPool.(*SurrealTx); ok {
+					results, err = surrealdb.Query[interface{}](db.Statement.Context, txConn.SDKTx(), sql, params)
+				} else {
+					results, err = surrealdb.Query[interface{}](db.Statement.Context, dialector.Conn, sql, params)
+				}
+				if err != nil {
 					db.AddError(err)
+					return
+				}
+				if len(*results) > 0 && (*results)[0].Status != "OK" {
+					db.AddError(fmt.Errorf("relate error: %v", (*results)[0]))
 					return
 				}
 				db.RowsAffected = 1
@@ -105,7 +113,13 @@ func CreateCallback(db *gorm.DB) {
 				Relation: sdkModels.Table(db.Statement.Table),
 				Data:     extraData,
 			}
-			result, err := surrealdb.InsertRelation[interface{}](db.Statement.Context, dialector.Conn, rel)
+			var result *interface{}
+			var err error
+			if txConn, ok := db.Statement.ConnPool.(*SurrealTx); ok {
+				result, err = surrealdb.InsertRelation[interface{}](db.Statement.Context, txConn.SDKTx(), rel)
+			} else {
+				result, err = surrealdb.InsertRelation[interface{}](db.Statement.Context, dialector.Conn, rel)
+			}
 			if err != nil {
 				db.AddError(err)
 				return
@@ -154,27 +168,76 @@ func CreateCallback(db *gorm.DB) {
 			}
 		}
 		if len(fkVals) == 2 {
-			// Detect if the edge table schema has timestamps.
+			// Collect extra (non-FK, non-timestamp) fields from the struct.
+			skipDBNames := map[string]bool{
+				"id": true, "in": true, "out": true,
+				"created_at": true, "updated_at": true, "deleted_at": true,
+			}
+			extraData := make(map[string]interface{})
+			for _, field := range db.Statement.Schema.Fields {
+				if field.DBName == "" || skipDBNames[field.DBName] {
+					continue
+				}
+				v, isZero := field.ValueOf(db.Statement.Context, reflectValue)
+				if isZero {
+					continue
+				}
+				if extractRecordID(v) != nil {
+					continue // skip FK references
+				}
+				extraData[field.DBName] = TypesM.ToSDKValue(v)
+			}
+
 			hasTimestamps := db.Statement.Schema.LookUpField("CreatedAt") != nil
+
+			params := make(map[string]interface{})
+			var setParts []string
 			if hasTimestamps {
-				sql := fmt.Sprintf("RELATE %s -> %s -> %s SET created_at = time::now(), updated_at = time::now()",
-					fkVals[0].String(), registeredName, fkVals[1].String())
-				if err := db.Exec(sql).Error; err != nil {
+				setParts = append(setParts, "created_at = time::now()", "updated_at = time::now()")
+			}
+			i := 0
+			for k, v := range extraData {
+				paramKey := fmt.Sprintf("p%d", i)
+				params[paramKey] = v
+				setParts = append(setParts, fmt.Sprintf("%s = $%s", k, paramKey))
+				i++
+			}
+
+			if len(setParts) > 0 {
+				sql := fmt.Sprintf("RELATE %s -> %s -> %s SET %s",
+					fkVals[0].String(), registeredName, fkVals[1].String(),
+					strings.Join(setParts, ", "))
+				var results *[]surrealdb.QueryResult[interface{}]
+				var err error
+				if txConn, ok := db.Statement.ConnPool.(*SurrealTx); ok {
+					results, err = surrealdb.Query[interface{}](db.Statement.Context, txConn.SDKTx(), sql, params)
+				} else {
+					results, err = surrealdb.Query[interface{}](db.Statement.Context, dialector.Conn, sql, params)
+				}
+				if err != nil {
 					db.AddError(err)
 					return
 				}
-				db.RowsAffected = 1
-				return
-			}
-
-			rel := &surrealdb.Relationship{
-				In:       *fkVals[0],
-				Out:      *fkVals[1],
-				Relation: sdkModels.Table(registeredName),
-			}
-			if _, err := surrealdb.InsertRelation[interface{}](db.Statement.Context, dialector.Conn, rel); err != nil {
-				db.AddError(err)
-				return
+				if len(*results) > 0 && (*results)[0].Status != "OK" {
+					db.AddError(fmt.Errorf("relate error: %v", (*results)[0]))
+					return
+				}
+			} else {
+				rel := &surrealdb.Relationship{
+					In:       *fkVals[0],
+					Out:      *fkVals[1],
+					Relation: sdkModels.Table(registeredName),
+				}
+				var err error
+				if txConn, ok := db.Statement.ConnPool.(*SurrealTx); ok {
+					_, err = surrealdb.InsertRelation[interface{}](db.Statement.Context, txConn.SDKTx(), rel)
+				} else {
+					_, err = surrealdb.InsertRelation[interface{}](db.Statement.Context, dialector.Conn, rel)
+				}
+				if err != nil {
+					db.AddError(err)
+					return
+				}
 			}
 			db.RowsAffected = 1
 			return
@@ -239,9 +302,17 @@ func CreateCallback(db *gorm.DB) {
 			createData = dataMap
 		}
 
+		// Use sdkTx if inside a GORM transaction so the CREATE participates in
+		// the open transaction (read-your-own-writes).
 		var created *interface{}
 		var err error
-		if whatRecord != nil {
+		if txConn, ok := db.Statement.ConnPool.(*SurrealTx); ok {
+			if whatRecord != nil {
+				created, err = surrealdb.Update[interface{}](db.Statement.Context, txConn.SDKTx(), *whatRecord, createData)
+			} else {
+				created, err = surrealdb.Create[interface{}](db.Statement.Context, txConn.SDKTx(), sdkModels.Table(whatTable), createData)
+			}
+		} else if whatRecord != nil {
 			created, err = surrealdb.Update[interface{}](db.Statement.Context, dialector.Conn, *whatRecord, createData)
 		} else {
 			created, err = surrealdb.Create[interface{}](db.Statement.Context, dialector.Conn, sdkModels.Table(whatTable), createData)

@@ -378,3 +378,22 @@ func (dialector *Dialector) QueryContext(ctx context.Context, query string, args
 func (dialector *Dialector) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
 	return nil
 }
+
+// BeginTx implements gorm.ConnPoolBeginner. It opens a native interactive
+// transaction on the SurrealDB WebSocket connection (requires SurrealDB v3+).
+// All subsequent operations on the returned ConnPool run inside that transaction,
+// so read-your-own-writes works transparently.
+func (dialector *Dialector) BeginTx(ctx context.Context, opts *sql.TxOptions) (gorm.ConnPool, error) {
+	if dialector.Conn == nil {
+		return nil, errors.New("surrealdb: connection not initialized")
+	}
+	sdkTx, err := dialector.Conn.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("surrealdb BeginTx: %w", err)
+	}
+	return &SurrealTx{
+		dialector: dialector,
+		ctx:       ctx,
+		sdkTx:     sdkTx,
+	}, nil
+}

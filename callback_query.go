@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/dailaim/surrealdb-gorm/clauses"
+	TypesM "github.com/dailaim/surrealdb-gorm/types"
 )
 
 func QueryCallback(db *gorm.DB) {
@@ -69,7 +70,13 @@ func QueryCallback(db *gorm.DB) {
 
 func optimizeFindByID(db *gorm.DB) {
 	if len(db.Statement.Vars) >= 1 {
-		if _, ok := db.Statement.Vars[0].(*sdkModels.RecordID); ok {
+		isRecordID := false
+		switch db.Statement.Vars[0].(type) {
+		case *sdkModels.RecordID, sdkModels.RecordID,
+			*TypesM.RecordID, TypesM.RecordID:
+			isRecordID = true
+		}
+		if isRecordID {
 			sql := db.Statement.SQL.String()
 			if db.Statement.Table != "" {
 				quotedTable := fmt.Sprintf("`%s`", db.Statement.Table)

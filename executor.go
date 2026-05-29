@@ -194,7 +194,17 @@ func executeSQL(db *gorm.DB) {
 	})
 
 	// Execute
-	results, err := surrealdb.Query[interface{}](db.Statement.Context, dialector.Conn, sql, params)
+	//
+	// If we're inside a GORM transaction, db.Statement.ConnPool is a *SurrealTx.
+	// Route the query through the SDK transaction so every statement (read or
+	// write) participates in the same open transaction — giving read-your-own-writes.
+	var results *[]surrealdb.QueryResult[interface{}]
+	var err error
+	if txConn, ok := db.Statement.ConnPool.(*SurrealTx); ok {
+		results, err = surrealdb.Query[interface{}](db.Statement.Context, txConn.SDKTx(), sql, params)
+	} else {
+		results, err = surrealdb.Query[interface{}](db.Statement.Context, dialector.Conn, sql, params)
+	}
 	if err != nil {
 		db.AddError(err)
 		return

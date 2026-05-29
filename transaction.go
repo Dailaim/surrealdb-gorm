@@ -1,0 +1,186 @@
+package surrealdb
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/surrealdb/surrealdb.go"
+	"gorm.io/gorm"
+
+	TypesM "github.com/dailaim/surrealdb-gorm/types"
+)
+
+// ============================================================================
+// SurrealTx — GORM-compatible native interactive transaction (SurrealDB v3+)
+// ============================================================================
+
+// SurrealTx wraps a real *surrealdb.Transaction and implements gorm.ConnPool +
+// gorm.TxCommitter.
+//
+// Every statement (read or write) is executed immediately against the open
+// transaction on the WebSocket connection, so read-your-own-writes works
+// transparently.
+//
+// Requires SurrealDB v3+ and a WebSocket connection.
+type SurrealTx struct {
+	dialector *Dialector
+	ctx       context.Context
+	sdkTx     *surrealdb.Transaction
+}
+
+// SDKTx returns the underlying *surrealdb.Transaction so that callbacks
+// (CreateCallback, executeSQL, etc.) can use the SDK functions directly.
+func (t *SurrealTx) SDKTx() *surrealdb.Transaction { return t.sdkTx }
+
+// — gorm.ConnPool interface —
+
+// ExecContext executes a write statement immediately on the open transaction.
+func (t *SurrealTx) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	if t.sdkTx.IsClosed() {
+		return nil, errors.New("surrealdb: transaction already done")
+	}
+	params := make(map[string]interface{})
+	for i, v := range args {
+		params[fmt.Sprintf("p%d", i+1)] = TypesM.ToSDKValue(v)
+	}
+	results, err := surrealdb.Query[interface{}](ctx, t.sdkTx, query, params)
+	if err != nil {
+		return nil, err
+	}
+	var count int64
+	if len(*results) > 0 {
+		r := (*results)[0]
+		if r.Status != "OK" {
+			return nil, fmt.Errorf("surrealdb tx exec error: %v", r)
+		}
+	}
+	return DriverResult{Rows: count}, nil
+}
+
+// QueryContext executes a SELECT immediately on the open transaction.
+// Reads see all writes made earlier in the same transaction.
+func (t *SurrealTx) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+	return nil, errors.New("surrealdb: raw QueryContext rows not supported; use db.Raw(...).Scan(&dest)")
+}
+
+func (t *SurrealTx) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
+	return nil
+}
+
+func (t *SurrealTx) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
+	return nil, errors.New("surrealdb: PrepareContext not supported")
+}
+
+// — gorm.TxCommitter interface —
+
+// Commit commits the transaction, making all changes visible to other sessions.
+func (t *SurrealTx) Commit() error {
+	if t.sdkTx.IsClosed() {
+		return nil // already committed or rolled back — treat as no-op
+	}
+	return t.sdkTx.Commit(t.ctx)
+}
+
+// Rollback cancels the transaction, discarding all changes.
+func (t *SurrealTx) Rollback() error {
+	if t.sdkTx.IsClosed() {
+		return nil
+	}
+	return t.sdkTx.Cancel(t.ctx)
+}
+
+// ============================================================================
+// Raw Transaction helper (surrealdb.Transaction)
+// ============================================================================
+
+// Tx is a SurrealDB transaction builder for raw SurrealQL.
+// Statements added via Exec are sent atomically in a single
+// BEGIN TRANSACTION / COMMIT TRANSACTION block.
+type Tx struct {
+	stmts  []string
+	params map[string]interface{}
+	err    error
+	n      int
+}
+
+// Exec adds a SurrealQL statement to the pending transaction.
+// Named placeholders ($name) are automatically namespaced across statements.
+func (t *Tx) Exec(query string, params map[string]interface{}) {
+	if t.err != nil {
+		return
+	}
+	for k, v := range params {
+		newKey := fmt.Sprintf("tx%d_%s", t.n, k)
+		re := regexp.MustCompile(`\$` + regexp.QuoteMeta(k) + `([^a-zA-Z0-9_]|$)`)
+		query = re.ReplaceAllString(query, "$$"+newKey+"$1")
+		t.params[newKey] = TypesM.ToSDKValue(v)
+	}
+	t.n++
+	t.stmts = append(t.stmts, query)
+}
+
+// Err returns the first error recorded during Exec, if any.
+func (t *Tx) Err() error { return t.err }
+
+// Transaction runs fn inside a SurrealDB atomic transaction using raw SurrealQL.
+// All statements added via tx.Exec are collected and sent as a single query.
+//
+// Usage:
+//
+//	err := surrealdb.Transaction(db, func(tx *surrealdb.Tx) error {
+//	    tx.Exec("UPDATE accounts SET balance -= $amt WHERE owner = $owner",
+//	        map[string]any{"amt": 100, "owner": "alice"})
+//	    tx.Exec("UPDATE accounts SET balance += $amt WHERE owner = $owner",
+//	        map[string]any{"amt": 100, "owner": "bob"})
+//	    return tx.Err()
+//	})
+func Transaction(db *gorm.DB, fn func(tx *Tx) error) error {
+	d, ok := db.Dialector.(*Dialector)
+	if !ok || d.Conn == nil {
+		return fmt.Errorf("surrealdb: connection not initialized")
+	}
+
+	ctx := context.Background()
+	if db.Statement != nil && db.Statement.Context != nil {
+		ctx = db.Statement.Context
+	}
+
+	tx := &Tx{params: make(map[string]interface{})}
+
+	if err := fn(tx); err != nil {
+		return err
+	}
+	if tx.err != nil {
+		return tx.err
+	}
+	if len(tx.stmts) == 0 {
+		return nil
+	}
+
+	all := make([]string, 0, len(tx.stmts)+2)
+	all = append(all, "BEGIN TRANSACTION;")
+	for _, stmt := range tx.stmts {
+		stmt = strings.TrimRight(stmt, " \t\r\n")
+		if !strings.HasSuffix(stmt, ";") {
+			stmt += ";"
+		}
+		all = append(all, stmt)
+	}
+	all = append(all, "COMMIT TRANSACTION;")
+	fullQuery := strings.Join(all, "\n")
+
+	results, err := surrealdb.Query[interface{}](ctx, d.Conn, fullQuery, tx.params)
+	if err != nil {
+		return fmt.Errorf("surrealdb transaction: %w", err)
+	}
+	for i, r := range *results {
+		if r.Status != "OK" {
+			return fmt.Errorf("surrealdb transaction: statement %d failed: %v", i, r)
+		}
+	}
+	return nil
+}
