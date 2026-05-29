@@ -45,6 +45,12 @@ converts every custom type to its SDK-native CBOR-tagged counterpart:
 | `types.GeometryCollection` | `*models.GeometryCollection` | Yes |
 | `[]byte` (Bytes) | `models.Bytes` | No (value) |
 
+### RecordID Parsing
+
+```go
+id, err := types.ParseRecordID("users:abc")
+```
+
 **Rule**: Before sending ANY value to the SDK via `db.Exec`, `db.Raw`, or
 callbacks, pass it through `ToSDKValue`. This is already done in:
 - `callback_create.go`
@@ -152,8 +158,9 @@ type Wishes struct {
       Since time.Time
   }
   ```
+- Constructor for edges with timestamps: `models.NewEdgeBaseModel[T, U](inID, outID *types.RecordID)`
+- `Association.Append` on `EdgeBaseModel` edges automatically sets `created_at = time::now(), updated_at = time::now()` via native `RELATE ... SET`
 - Soft-delete on edges is fully supported: `db.Delete(&edge)` sets `deleted_at`, normal queries hide it, `.Unscoped()` reveals it
-- Constructor helper: `models.NewEdge[T, U](inID, outID *types.RecordID)`
 - `inferEdgeEndpointTable` uses reflection to call `InTableName()` / `OutTableName()`
 - Edge table is registered via `Dialector.RegisterEdgeTable` so that callbacks can
 distinguish edge tables from regular tables
@@ -255,6 +262,10 @@ m.SetTableSchemaFull("users")
 
 - Supports `DROP TYPE`, `DROP READONLY`, `DROP ASSERT`, `DROP DEFAULT`, etc.
 - `ALTER FIELD IF EXISTS ON TABLE` syntax (note: `ON` keyword, no `TABLE` keyword after `ON`)
+- `m.DropField(table, column)` — removes a field
+- `m.RenameField(table, old, new)` — renames a field
+- `m.RemoveTableIndex(table, name)` — drops an index
+- `m.RenameTableTo(old, new)` — renames a table
 - Convenience wrappers for common operations
 
 ---
@@ -285,11 +296,12 @@ tests because the Go SDK does not return standard `sql.Rows` for them
 | `dialector.go` | `Dialector` struct, `DataTypeOf`, `ExplainQuery`, `Migrator()` |
 | `driver.go` | `Conn`, `Stmt`, `Tx` implementations, parameter serialization |
 | `executor.go` | Query execution, `ToSDKValue` integration |
+| `batch.go` | `CreateMany()` for native SurrealDB batch INSERT |
 | `callback_create.go` | GORM CREATE callback with CBOR serialization |
 | `callback_delete.go` | GORM DELETE callback |
 | `callback_update.go` | GORM UPDATE callback |
 | `migrator.go` | `AutoMigrate`, `defineFields`, `defineIndexes`, `removeObsoleteFields` |
-| `alter.go` | `AlterTable`, `AlterField`, convenience helpers |
+| `alter.go` | `AlterTable`, `AlterField`, `DropField`, `RenameField`, `RenameTableTo` |
 | `analyzer.go` | `DefineAnalyzer`, pre-built analyzer helpers |
 | `event.go` | `DefineEvent`, `RemoveEvent`, convenience helpers |
 | `live.go` | `LiveSelect`, `LiveNotifications`, `KillLiveQuery` |
@@ -297,6 +309,7 @@ tests because the Go SDK does not return standard `sql.Rows` for them
 | `types/sdk.go` | `ToSDKValue()` mapping custom types → SDK CBOR types |
 | `types/link.go` | `Link[T]` with `GormDataType()` inferring `record<T>` |
 | `types/slice-link.go` | `SliceLink[T]` with array inference |
+| `models/base.go` | `BaseModel`, `EdgeBaseModel[T,U]`, `NewEdgeBaseModel[T,U]()` |
 | `models/base.go` | `BaseModel` with ID, timestamps, soft-delete |
 | `models/schemas.go` | `SchemaFull` interface (opt-in to SCHEMAFULL) |
 | `models/relation.go` | `Edge[T,U]`, `EdgeRelation`, `NewEdge[T,U]` constructor |
@@ -318,6 +331,19 @@ github.com/gofrs/uuid v4.x
 
 Tested against SurrealDB v2.x / v3.x (features like `OVERWRITE`, `COMPACT`,
 `ASYNC` events require v2.0+ / v3.0+).
+
+---
+
+## Batch Insert (Bulk Create)
+
+```go
+users := []User{{Name: "Alice"}, {Name: "Bob"}, {Name: "Charlie"}}
+err := surrealdb.CreateMany(db, &users)
+```
+
+- Generates a single `INSERT INTO table [{...}, {...}, {...}]`
+- All values are passed through `ToSDKValue()` before serialisation
+- Falls back to individual inserts if the slice is empty or not a slice
 
 ---
 
