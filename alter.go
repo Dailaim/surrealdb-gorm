@@ -249,3 +249,33 @@ func (m Migrator) DropTableComment(table string) error {
 func (m Migrator) SetTablePermissions(table, permissions string) error {
 	return m.AlterTable(table, AlterTableOptions{Permissions: permissions})
 }
+
+// ============================================================================
+// Migration helpers not covered by AlterTable / AlterField
+// ============================================================================
+
+// ============================================================================
+// Migration helpers not covered by AlterTable / AlterField
+// ============================================================================
+
+// DropField removes a field from a table (named DropField to avoid clashing
+// with the inherited GORM Migrator.DropColumn).
+func (m Migrator) DropField(table, column string) error {
+	return m.DB.Exec(fmt.Sprintf("REMOVE FIELD IF EXISTS `%s` ON TABLE `%s`", column, table)).Error
+}
+
+// RenameField renames a field on a table.
+func (m Migrator) RenameField(table, oldName, newName string) error {
+	return m.DB.Exec(fmt.Sprintf("ALTER TABLE `%s` RENAME FIELD `%s` TO `%s`", table, oldName, newName)).Error
+}
+
+// RemoveTableIndex removes an index from a table (named RemoveTableIndex to
+// avoid clashing with the inherited GORM Migrator.DropIndex).
+func (m Migrator) RemoveTableIndex(table, indexName string) error {
+	return m.DB.Exec(fmt.Sprintf("REMOVE INDEX IF EXISTS `%s` ON TABLE `%s`", indexName, table)).Error
+}
+
+// RenameTableTo renames a table.
+func (m Migrator) RenameTableTo(oldName, newName string) error {
+	return m.DB.Exec(fmt.Sprintf("ALTER TABLE `%s` RENAME TO `%s`", oldName, newName)).Error
+}

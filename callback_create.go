@@ -53,7 +53,9 @@ func CreateCallback(db *gorm.DB) {
 			}
 
 			extraData := make(map[string]interface{})
+			hasTimestamps := false
 			if db.Statement.Schema != nil {
+				hasTimestamps = db.Statement.Schema.LookUpField("CreatedAt") != nil
 				skipFields := map[string]bool{"id": true, "in": true, "out": true,
 					"created_at": true, "updated_at": true, "deleted_at": true}
 				for _, field := range db.Statement.Schema.Fields {
@@ -68,6 +70,33 @@ func CreateCallback(db *gorm.DB) {
 						extraData[field.DBName] = val
 					}
 				}
+			}
+
+			// If timestamps are present, use native RELATE with time::now() instead
+			// of InsertRelation which ignores extra fields like created_at.
+			if hasTimestamps {
+				timestampSQL := "created_at = time::now(), updated_at = time::now()"
+				var setParts []string
+				for k, v := range extraData {
+					setParts = append(setParts, fmt.Sprintf("%s = %v", k, v))
+				}
+				var setClause string
+				if len(setParts) > 0 {
+					setClause = fmt.Sprintf("%s, %s", timestampSQL, setParts[0])
+					for i := 1; i < len(setParts); i++ {
+						setClause += ", " + setParts[i]
+					}
+				} else {
+					setClause = timestampSQL
+				}
+				sql := fmt.Sprintf("RELATE %s -> %s -> %s SET %s",
+					inID.String(), db.Statement.Table, outID.String(), setClause)
+				if err := db.Exec(sql).Error; err != nil {
+					db.AddError(err)
+					return
+				}
+				db.RowsAffected = 1
+				return
 			}
 
 			rel := &surrealdb.Relationship{
@@ -125,6 +154,19 @@ func CreateCallback(db *gorm.DB) {
 			}
 		}
 		if len(fkVals) == 2 {
+			// Detect if the edge table schema has timestamps.
+			hasTimestamps := db.Statement.Schema.LookUpField("CreatedAt") != nil
+			if hasTimestamps {
+				sql := fmt.Sprintf("RELATE %s -> %s -> %s SET created_at = time::now(), updated_at = time::now()",
+					fkVals[0].String(), registeredName, fkVals[1].String())
+				if err := db.Exec(sql).Error; err != nil {
+					db.AddError(err)
+					return
+				}
+				db.RowsAffected = 1
+				return
+			}
+
 			rel := &surrealdb.Relationship{
 				In:       *fkVals[0],
 				Out:      *fkVals[1],

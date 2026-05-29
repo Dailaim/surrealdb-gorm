@@ -70,7 +70,7 @@ func DeleteCallback(db *gorm.DB) {
 				if hasDeletedAt(db.Statement.Model) && !db.Statement.Unscoped {
 					_, err := surrealdb.Query[interface{}](
 						db.Statement.Context, dialector.Conn,
-						"UPDATE $id SET deleted_at = time::now()",
+						"UPDATE $id SET deleted_at = time::now(), updated_at = time::now()",
 						map[string]interface{}{"id": &recID.RecordID},
 					)
 					if err != nil {

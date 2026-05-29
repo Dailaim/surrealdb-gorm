@@ -8,6 +8,15 @@ import (
 	"github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
+// ParseRecordID parses a "table:id" string into a RecordID value.
+func ParseRecordID(s string) (*RecordID, error) {
+	r := &RecordID{}
+	if err := r.StringToRecordID(s); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
 type RecordID struct {
 	models.RecordID
 }
