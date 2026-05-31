@@ -2,6 +2,7 @@ package surrealdb
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"sync"
@@ -86,6 +87,16 @@ func CreateMany(db *gorm.DB, models interface{}) error {
 	}
 
 	table := sdkModels.Table(tableName)
-	_, err = surrealdb.Insert[interface{}](ctx, dialector.Conn, table, objects)
-	return err
+	result, err := surrealdb.Insert[interface{}](ctx, dialector.Conn, table, objects)
+	if err != nil {
+		return err
+	}
+
+	// Write back IDs (and any server-assigned fields) to the original slice.
+	if result != nil {
+		if b, merr := json.Marshal(*result); merr == nil {
+			_ = json.Unmarshal(b, models)
+		}
+	}
+	return nil
 }

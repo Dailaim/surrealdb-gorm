@@ -20,6 +20,9 @@ func CreateCallback(db *gorm.DB) {
 	if db.Error != nil {
 		return
 	}
+	if db.DryRun {
+		return
+	}
 
 	dialector := db.Dialector.(*Dialector)
 	if dialector.Conn == nil {

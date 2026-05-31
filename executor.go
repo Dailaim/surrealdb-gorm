@@ -229,6 +229,11 @@ func executeSQL(db *gorm.DB) {
 		}
 		db.RowsAffected = count
 
+		if count == 0 && db.Statement.RaiseErrorOnNotFound {
+			db.AddError(gorm.ErrRecordNotFound)
+			return
+		}
+
 		if db.Statement.Dest != nil && count > 0 {
 			var dataToUnmarshal interface{} = res.Result
 
@@ -246,6 +251,44 @@ func executeSQL(db *gorm.DB) {
 				if resVal.Kind() == reflect.Slice || resVal.Kind() == reflect.Array {
 					if resVal.Len() > 0 {
 						dataToUnmarshal = resVal.Index(0).Interface()
+					}
+				}
+			}
+
+			// Pluck: dest is a slice of scalars (string, int, float…) but the
+			// SurrealDB results are maps ([]map[string]interface{}).
+			// Extract the first — and only — value from each map row.
+			if destVal.Kind() == reflect.Slice || destVal.Kind() == reflect.Array {
+				elemKind := destVal.Type().Elem().Kind()
+				isScalar := elemKind == reflect.String ||
+					(elemKind >= reflect.Int && elemKind <= reflect.Int64) ||
+					(elemKind >= reflect.Uint && elemKind <= reflect.Uint64) ||
+					(elemKind >= reflect.Float32 && elemKind <= reflect.Float64) ||
+					elemKind == reflect.Bool
+				if isScalar {
+					resVal := reflect.ValueOf(res.Result)
+					if resVal.IsValid() && (resVal.Kind() == reflect.Slice || resVal.Kind() == reflect.Array) && resVal.Len() > 0 {
+						if _, isMap := resVal.Index(0).Interface().(map[string]interface{}); isMap {
+							newSlice := reflect.MakeSlice(destVal.Type(), 0, resVal.Len())
+							for i := 0; i < resVal.Len(); i++ {
+								if m, ok := resVal.Index(i).Interface().(map[string]interface{}); ok {
+									for _, v := range m { // first (only) key
+										vb, err := json.Marshal(v)
+										if err == nil {
+											newElem := reflect.New(destVal.Type().Elem())
+											if err := json.Unmarshal(vb, newElem.Interface()); err == nil {
+												newSlice = reflect.Append(newSlice, newElem.Elem())
+											}
+										}
+										break
+									}
+								}
+							}
+							if destVal.CanSet() {
+								destVal.Set(newSlice)
+							}
+							return
+						}
 					}
 				}
 			}
