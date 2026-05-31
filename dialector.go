@@ -13,7 +13,6 @@ import (
 	TypesM "github.com/dailaim/surrealdb-gorm/types"
 	"github.com/surrealdb/surrealdb.go"
 	"gorm.io/gorm"
-	"gorm.io/gorm/callbacks"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/migrator"
 	"gorm.io/gorm/schema"
@@ -105,7 +104,9 @@ func (dialector *Dialector) Initialize(db *gorm.DB) (err error) {
 		db.ConnPool = dialector
 	}
 
-	callbacks.RegisterDefaultCallbacks(db, &callbacks.Config{})
+	// Disable GORM's implicit per-statement transaction wrapping.
+	db.Config.SkipDefaultTransaction = true
+
 	RegisterCallbacks(db)
 	return nil
 }

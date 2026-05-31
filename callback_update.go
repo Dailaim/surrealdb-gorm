@@ -2,11 +2,11 @@ package surrealdb
 
 import (
 	"reflect"
-	"time"
 
 	"github.com/surrealdb/surrealdb.go"
 	sdkModels "github.com/surrealdb/surrealdb.go/pkg/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/callbacks"
 	"gorm.io/gorm/clause"
 
 	TypesM "github.com/dailaim/surrealdb-gorm/types"
@@ -108,65 +108,17 @@ func UpdateCallback(db *gorm.DB) {
 				db.Statement.AddClauseIfNotExists(clause.Update{})
 			}
 
-			db.Statement.AddClauseIfNotExists(clause.Set{})
 			db.Statement.AddClauseIfNotExists(clause.Where{})
 
-			if db.Statement.Schema != nil {
-				now := time.Now()
-				if field := db.Statement.Schema.LookUpField("UpdatedAt"); field != nil {
-					rv := db.Statement.ReflectValue
-					for rv.Kind() == reflect.Ptr {
-						rv = rv.Elem()
-					}
-					if rv.Kind() == reflect.Struct {
-						if rv.CanAddr() {
-							field.Set(db.Statement.Context, db.Statement.ReflectValue, now)
-						}
-					} else if rv.Kind() == reflect.Map {
-						if destMap, ok := db.Statement.Dest.(map[string]interface{}); ok {
-							destMap[field.DBName] = now
-						}
-					}
-				}
-			}
-
-			if set, ok := db.Statement.Clauses["SET"]; ok {
-				if _, ok := set.Expression.(clause.Set); ok {
-					var assignments []clause.Assignment
-
-					if destMap, ok := db.Statement.Dest.(map[string]interface{}); ok {
-						for k, v := range destMap {
-							if k == "id" {
-								continue
-							}
-							assignments = append(assignments, clause.Assignment{Column: clause.Column{Name: k}, Value: v})
-						}
-					} else if db.Statement.Schema != nil {
-						destValue := reflect.ValueOf(db.Statement.Dest)
-						for destValue.Kind() == reflect.Ptr {
-							destValue = destValue.Elem()
-						}
-
-						if destValue.Kind() == reflect.Struct {
-							now := time.Now()
-							for _, field := range db.Statement.Schema.Fields {
-								if field.DBName == "" || field.DBName == "id" {
-									continue
-								}
-								if field.Name == "UpdatedAt" {
-									assignments = append(assignments, clause.Assignment{Column: clause.Column{Name: field.DBName}, Value: now})
-									continue
-								}
-								if val, isZero := field.ValueOf(db.Statement.Context, destValue); !isZero {
-									assignments = append(assignments, clause.Assignment{Column: clause.Column{Name: field.DBName}, Value: val})
-								}
-							}
-						}
-					}
-
-					if len(assignments) > 0 {
-						db.Statement.AddClause(clause.Set(assignments))
-					}
+			// Delegate SET assignment computation to GORM's ConvertToAssignments.
+			// This handles map/struct dests, auto-update timestamps (updated_at),
+			// select/omit columns, and auto-update time fields correctly — avoiding
+			// the subtle bugs in our previous manual implementation.
+			if _, ok := db.Statement.Clauses["SET"]; !ok {
+				if set := callbacks.ConvertToAssignments(db.Statement); len(set) != 0 {
+					db.Statement.AddClause(set)
+				} else {
+					return // nothing to update
 				}
 			}
 
