@@ -35,7 +35,7 @@ func RegisterCallbacks(db *gorm.DB) {
 
 	// ── Row (used internally by GORM for association counts, etc.) ───────────
 	db.Callback().Row().Register("surreal:edge_assoc_count", edgeAssocCountCallback)
-	db.Callback().Row().After("surreal:edge_assoc_count").Register("gorm:row", func(db *gorm.DB) {})
+	db.Callback().Row().After("surreal:edge_assoc_count").Register("gorm:row", RowCallback)
 
 	// ── Query ────────────────────────────────────────────────────────────────
 	db.Callback().Query().Register("surreal:handle_preload", handlePreloadAsFetch)
