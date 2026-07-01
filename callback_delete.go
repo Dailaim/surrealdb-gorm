@@ -43,6 +43,18 @@ func lookUpDeletedAt(rt reflect.Type) bool {
 	return false
 }
 
+// hasWhereConditions reports whether the statement carries any WHERE
+// expressions. Used to avoid emitting a dangling "WHERE" (which SurrealDB
+// rejects) for global, unconditional deletes.
+func hasWhereConditions(stmt *gorm.Statement) bool {
+	if c, ok := stmt.Clauses["WHERE"]; ok {
+		if w, ok := c.Expression.(clause.Where); ok {
+			return len(w.Exprs) > 0
+		}
+	}
+	return false
+}
+
 func DeleteCallback(db *gorm.DB) {
 	if db.Error != nil {
 		return
@@ -142,7 +154,11 @@ func DeleteCallback(db *gorm.DB) {
 			db.Statement.AddClause(clause.Set{
 				{Column: clause.Column{Name: "deleted_at"}, Value: time.Now()},
 			})
-			db.Statement.BuildClauses = []string{"UPDATE", "SET", "WHERE"}
+			if hasWhereConditions(db.Statement) {
+				db.Statement.BuildClauses = []string{"UPDATE", "SET", "WHERE"}
+			} else {
+				db.Statement.BuildClauses = []string{"UPDATE", "SET"}
+			}
 		} else {
 			// Hard delete: use direct ID if the model exposes one.
 			// Also check Dest (when db.Delete(&p) is called without db.Model(&p)).
@@ -173,10 +189,16 @@ func DeleteCallback(db *gorm.DB) {
 			// Fallback: build clause-based DELETE (e.g. db.Where(...).Delete)
 			db.Statement.AddClauseIfNotExists(clause.Delete{})
 			db.Statement.AddClauseIfNotExists(clause.From{})
-			db.Statement.BuildClauses = []string{"DELETE", "FROM", "WHERE"}
+			if hasWhereConditions(db.Statement) {
+				db.Statement.BuildClauses = []string{"DELETE", "FROM", "WHERE"}
+			} else {
+				db.Statement.BuildClauses = []string{"DELETE", "FROM"}
+			}
 		}
 
-		db.Statement.AddClauseIfNotExists(clause.Where{})
+		if hasWhereConditions(db.Statement) {
+			db.Statement.AddClauseIfNotExists(clause.Where{})
+		}
 	}
 
 	db.Statement.Build(db.Statement.BuildClauses...)

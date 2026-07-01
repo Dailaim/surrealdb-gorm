@@ -19,3 +19,6 @@ coverage.html
 
 # Scratch / local overrides
 *.local
+
+# Claude Code local worktrees/state
+.claude/

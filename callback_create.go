@@ -116,6 +116,30 @@ func CreateCallback(db *gorm.DB) {
 					db.AddError(fmt.Errorf("relate error: %v", (*results)[0]))
 					return
 				}
+				// Write the created edge (id, in, out, timestamps) back into dest
+				// so callers see the populated ID after db.Create(&edge).
+				if len(*results) > 0 && (*results)[0].Result != nil {
+					val := reflect.ValueOf((*results)[0].Result)
+					for val.Kind() == reflect.Pointer || val.Kind() == reflect.Interface {
+						if val.IsNil() {
+							break
+						}
+						val = val.Elem()
+					}
+					var single interface{}
+					if val.IsValid() && (val.Kind() == reflect.Slice || val.Kind() == reflect.Array) {
+						if val.Len() > 0 {
+							single = val.Index(0).Interface()
+						}
+					} else if val.IsValid() {
+						single = val.Interface()
+					}
+					if single != nil {
+						if b, err := json.Marshal(single); err == nil {
+							_ = json.Unmarshal(b, db.Statement.Dest)
+						}
+					}
+				}
 				db.RowsAffected = 1
 				return
 			}
@@ -259,27 +283,84 @@ func CreateCallback(db *gorm.DB) {
 
 	if reflectValue.Kind() == reflect.Slice || reflectValue.Kind() == reflect.Array {
 		table := sdkModels.Table(db.Statement.Table)
-		var data interface{}
-		b, err := json.Marshal(db.Statement.Dest)
-		if err != nil {
-			db.AddError(err)
-			return
+
+		// Build one SDK-safe map per element instead of a raw json.Marshal of the
+		// slice. This mirrors the single-record path: zero-value fields are
+		// skipped (so option<datetime> accepts NONE) and every value goes through
+		// ToSDKValue so datetimes/decimals are sent as CBOR-native types rather
+		// than plain strings (which SurrealDB rejects for typed fields).
+		now := time.Now()
+		objects := make([]map[string]interface{}, 0, reflectValue.Len())
+		for i := 0; i < reflectValue.Len(); i++ {
+			elem := reflectValue.Index(i)
+			for elem.Kind() == reflect.Pointer {
+				elem = elem.Elem()
+			}
+			if db.Statement.Schema != nil && elem.CanAddr() {
+				if f := db.Statement.Schema.LookUpField("CreatedAt"); f != nil {
+					if _, isZero := f.ValueOf(db.Statement.Context, elem); isZero {
+						f.Set(db.Statement.Context, elem, now)
+					}
+				}
+				if f := db.Statement.Schema.LookUpField("UpdatedAt"); f != nil {
+					if _, isZero := f.ValueOf(db.Statement.Context, elem); isZero {
+						f.Set(db.Statement.Context, elem, now)
+					}
+				}
+			}
+			obj := make(map[string]interface{})
+			if db.Statement.Schema != nil {
+				for _, field := range db.Statement.Schema.Fields {
+					if field.DBName == "" {
+						continue
+					}
+					val, isZero := field.ValueOf(db.Statement.Context, elem)
+					if isZero {
+						continue
+					}
+					obj[field.DBName] = TypesM.ToSDKValue(val)
+				}
+			}
+			objects = append(objects, obj)
 		}
-		if err := json.Unmarshal(b, &data); err != nil {
-			db.AddError(err)
-			return
-		}
+
 		// Route through the interactive transaction if one is open so bulk
 		// inserts participate in db.Transaction(...).
+		var created *[]interface{}
+		var err error
 		if txConn, ok := db.Statement.ConnPool.(*SurrealTx); ok {
-			_, err = surrealdb.Insert[interface{}](db.Statement.Context, txConn.SDKTx(), table, data)
+			created, err = surrealdb.Insert[interface{}](db.Statement.Context, txConn.SDKTx(), table, objects)
 		} else {
-			_, err = surrealdb.Insert[interface{}](db.Statement.Context, dialector.Conn, table, data)
+			created, err = surrealdb.Insert[interface{}](db.Statement.Context, dialector.Conn, table, objects)
 		}
 		if err != nil {
 			db.AddError(err)
 			return
 		}
+		// Write server-assigned fields (ids, timestamps) back into each element.
+		// json.Unmarshal into db.Statement.Dest does not work here because in the
+		// CreateInBatches path Dest is a (non-pointer) slice value; instead we map
+		// each returned record onto its addressable slice element.
+		if created != nil {
+			recs := *created
+			for i := 0; i < len(recs) && i < reflectValue.Len(); i++ {
+				elem := reflectValue.Index(i)
+				if elem.Kind() == reflect.Pointer {
+					if elem.IsNil() {
+						continue
+					}
+					elem = elem.Elem()
+				}
+				if !elem.CanAddr() {
+					continue
+				}
+				if bb, merr := json.Marshal(recs[i]); merr == nil {
+					_ = json.Unmarshal(bb, elem.Addr().Interface())
+				}
+			}
+		}
+		db.RowsAffected = int64(len(objects))
+		return
 	} else {
 		var whatTable = db.Statement.Table
 		var whatRecord *sdkModels.RecordID
@@ -341,6 +422,11 @@ func CreateCallback(db *gorm.DB) {
 			db.AddError(err)
 			return
 		}
+
+		// Set RowsAffected here (not only at the end) because the result-mapping
+		// block below returns early on success; without this, callers like
+		// FirstOrCreate see RowsAffected == 0 after a successful create.
+		db.RowsAffected = 1
 
 		if created != nil {
 			val := reflect.ValueOf(created)
