@@ -1,6 +1,9 @@
 services:
   surrealdb:
-    image: surrealdb/surrealdb:latest
+    # v3+ is required for interactive transactions, ALTER FIELD, and DROP
+    # CHANGEFEED. The `latest` tag is still 2.x, so we use `nightly` (3.x) until
+    # a stable v3 tag ships — pin it then for reproducible CI.
+    image: surrealdb/surrealdb:nightly
     ports:
       - "8000:8000"
     command: start --user root --pass root

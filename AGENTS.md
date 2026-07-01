@@ -11,7 +11,11 @@ features rather than emulating them in Go.
 
 - **Package**: `github.com/dailaim/surrealdb-gorm`
 - **Package name**: `surrealdb` (Go convention, no underscores)
-- **SDK**: `github.com/surrealdb/surrealdb.go` v1.4.0 (CBOR wire protocol)
+- **SDK**: `github.com/surrealdb/surrealdb.go` v1.5.0 (CBOR wire protocol)
+- **Server**: SurrealDB v3+ recommended (interactive transactions, `ALTER FIELD`,
+  `DROP CHANGEFEED` require it). On connect, `Initialize` signs in, then runs
+  `DEFINE NAMESPACE/DATABASE IF NOT EXISTS` before `USE` because v3 no longer
+  auto-creates them (v2 did).
 - **DSN format**: `ws://host:port/rpc?namespace=NS&database=DB&username=USR&password=PWD`
 
 ---
@@ -322,7 +326,7 @@ tests because the Go SDK does not return standard `sql.Rows` for them
 
 ```
 gorm.io/gorm v1.31.1
-github.com/surrealdb/surrealdb.go v1.4.0
+github.com/surrealdb/surrealdb.go v1.5.0
 github.com/shopspring/decimal v1.4.0
 github.com/gofrs/uuid v4.x
 ```

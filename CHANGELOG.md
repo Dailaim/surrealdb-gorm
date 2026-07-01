@@ -47,9 +47,19 @@ First stable release of the GORM v2 driver for SurrealDB.
   inside `db.Transaction(...)`.
 - Removed a duplicated `DELETE FROM` translation block in the SQL executor.
 
+### Changed
+
+- Upgraded SDK to `surrealdb.go` v1.5.0.
+- On connect, `Initialize` now signs in and runs `DEFINE NAMESPACE/DATABASE IF
+  NOT EXISTS` before `USE`, so the driver works on SurrealDB v3 (which no longer
+  auto-creates them) as well as v2.
+- `docker-compose.yml` uses the `nightly` (v3) image; the full test suite passes
+  against SurrealDB v3.
+
 ### Notes
 
 - The test suite honors the `SURREALDB_DSN` environment variable, falling back
   to a local development instance.
+- Full suite: 105 passing, 1 intentional skip (raw `LIVE SELECT` via Scan).
 
 [1.0.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.0.0

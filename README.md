@@ -6,7 +6,7 @@
 
 A [GORM v2](https://gorm.io) driver for [SurrealDB](https://surrealdb.com), mapping GORM's relational model onto SurrealDB's document-graph hybrid database using native SurrealQL.
 
-> **Status**: v1.0.0 — stable API. Requires SurrealDB v2+ (interactive transactions require v3+).
+> **Status**: v1.0.0 — stable API. SurrealDB **v3+ recommended** (interactive transactions, `ALTER FIELD`, and `DROP CHANGEFEED` require it); works on v2 without those features. The driver creates the namespace/database on connect if missing.
 
 ---
 
@@ -16,7 +16,7 @@ A [GORM v2](https://gorm.io) driver for [SurrealDB](https://surrealdb.com), mapp
 go get github.com/dailaim/surrealdb-gorm@v1.0.0
 ```
 
-**Requirements**: Go 1.25+, SurrealDB v2+, WebSocket endpoint.
+**Requirements**: Go 1.25+, SurrealDB v3+ (v2 works with reduced features), WebSocket endpoint. SDK: `surrealdb.go` v1.5.0.
 
 ---
 

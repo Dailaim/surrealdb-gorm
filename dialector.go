@@ -84,19 +84,34 @@ func (dialector *Dialector) Initialize(db *gorm.DB) (err error) {
 		if ns == "" || dbName == "" {
 			return errors.New("namespace and database must be provided")
 		}
-		if err := conn.Use(context.Background(), ns, dbName); err != nil {
-			return err
-		}
 
 		user := q.Get("username")
 		pass := q.Get("password")
 		if user == "" || pass == "" {
 			return errors.New("username and password must be provided")
 		}
+		// Sign in first: root-level auth is namespace-independent and is required
+		// before defining namespaces/databases.
 		if _, err := conn.SignIn(context.Background(), surrealdb.Auth{
 			Username: user,
 			Password: pass,
 		}); err != nil {
+			return err
+		}
+
+		// SurrealDB v3 does not implicitly create the namespace/database on USE
+		// (v2 tolerated it). Create them idempotently so AutoMigrate and queries
+		// work out of the box on both versions.
+		ctx := context.Background()
+		if _, err := surrealdb.Query[interface{}](ctx, conn,
+			fmt.Sprintf("DEFINE NAMESPACE IF NOT EXISTS `%s`", ns), nil); err != nil {
+			return err
+		}
+		if err := conn.Use(ctx, ns, dbName); err != nil {
+			return err
+		}
+		if _, err := surrealdb.Query[interface{}](ctx, conn,
+			fmt.Sprintf("DEFINE DATABASE IF NOT EXISTS `%s`", dbName), nil); err != nil {
 			return err
 		}
 
