@@ -23,6 +23,7 @@ type Dialector struct {
 	gorm.Dialector
 	DSN        string
 	Conn       *surrealdb.DB
+	sqlDB      *sql.DB  // backs QueryContext/QueryRowContext with real *sql.Rows
 	edgeTables sync.Map // map[string]string — canonical edge table names; key = any alias, value = canonical name
 }
 
@@ -117,6 +118,12 @@ func (dialector *Dialector) Initialize(db *gorm.DB) (err error) {
 
 		dialector.Conn = conn
 		db.ConnPool = dialector
+	}
+
+	// Open the internal *sql.DB that backs the raw-row query paths. It reuses the
+	// already-established SurrealDB connection via a database/sql connector.
+	if dialector.sqlDB == nil && dialector.Conn != nil {
+		dialector.sqlDB = sql.OpenDB(&sdConnector{dialector: dialector})
 	}
 
 	// Disable GORM's implicit per-statement transaction wrapping.
@@ -389,12 +396,22 @@ func (dialector *Dialector) PrepareContext(ctx context.Context, query string) (*
 	return nil, errors.New("method PrepareContext not implemented")
 }
 
+// QueryContext returns real *sql.Rows by delegating to the internal *sql.DB,
+// which is backed by the SurrealDB database/sql driver (see sqldriver.go).
+// This powers db.Raw(sql).Rows(), db.ScanRows, and raw LIVE/SHOW CHANGES reads.
 func (dialector *Dialector) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
-	return nil, errors.New("method QueryContext not implemented")
+	if dialector.sqlDB == nil {
+		return nil, errors.New("surrealdb: connection not initialized")
+	}
+	return dialector.sqlDB.QueryContext(ctx, query, args...)
 }
 
+// QueryRowContext returns a real *sql.Row by delegating to the internal *sql.DB.
 func (dialector *Dialector) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
-	return nil
+	if dialector.sqlDB == nil {
+		return nil
+	}
+	return dialector.sqlDB.QueryRowContext(ctx, query, args...)
 }
 
 // BeginTx implements gorm.ConnPoolBeginner. It opens a native interactive
