@@ -349,8 +349,11 @@ err := surrealdb.CreateMany(db, &users)
 
 ## What NOT to Do
 
-- **Do NOT use `BEGIN` / `COMMIT`**: SurrealDB transactions are complex and
-  not yet supported by this driver.
+- **Do NOT route writes directly through `dialector.Conn` in callbacks**: use
+  `execTxQuery(db, dialector, ...)` (or check `txFromStatement(db)`) so the
+  statement participates in an open `db.Transaction(...)`. Bypassing this breaks
+  atomicity and read-your-own-writes. Interactive transactions (SurrealDB v3+)
+  and the raw `surrealdb.Transaction(...)` builder are both supported.
 - **Do NOT pass raw `time.Time` / `time.Duration` to the SDK**: Always use
   `ToSDKValue`.
 - **Do NOT hardcode `READONLY` on `created_at` / `id`**: Use `gorm:"readonly"` tag.
@@ -362,4 +365,4 @@ err := surrealdb.CreateMany(db, &users)
 
 ---
 
-Last updated: 2026-05-16
+Last updated: 2026-07-01

@@ -87,7 +87,14 @@ func CreateMany(db *gorm.DB, models interface{}) error {
 	}
 
 	table := sdkModels.Table(tableName)
-	result, err := surrealdb.Insert[interface{}](ctx, dialector.Conn, table, objects)
+	// Participate in an open interactive transaction when CreateMany is called
+	// inside db.Transaction(...); otherwise use the shared connection.
+	var result *[]interface{}
+	if txConn, ok := txFromStatement(db); ok {
+		result, err = surrealdb.Insert[interface{}](ctx, txConn.SDKTx(), table, objects)
+	} else {
+		result, err = surrealdb.Insert[interface{}](ctx, dialector.Conn, table, objects)
+	}
 	if err != nil {
 		return err
 	}

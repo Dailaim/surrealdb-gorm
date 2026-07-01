@@ -33,8 +33,8 @@ type EdgeRelation interface {
 // around without a custom helper.
 type Edge[T any, U any] struct {
 	ID  *types.RecordID `gorm:"primaryKey;type:record;<-:create" json:"id,omitempty"`
-	In  *types.Link[T]   `gorm:"column:in" json:"in,omitempty"`
-	Out *types.Link[U]   `gorm:"column:out" json:"out,omitempty"`
+	In  *types.Link[T]  `gorm:"column:in" json:"in,omitempty"`
+	Out *types.Link[U]  `gorm:"column:out" json:"out,omitempty"`
 }
 
 func (e *Edge[T, U]) GetID() *types.RecordID {

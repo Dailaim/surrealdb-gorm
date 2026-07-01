@@ -46,7 +46,7 @@ func (dialector *Dialector) ExecContext(ctx context.Context, query string, args 
 							Relation: sdkModels.Table(registeredName),
 						}
 						if _, err := surrealdb.InsertRelation[interface{}](ctx, dialector.Conn, rel); err != nil {
-							return nil, err
+							return nil, &Error{Op: "relate", Query: query, Err: err}
 						}
 						return DriverResult{Rows: 1}, nil
 					}
@@ -55,7 +55,46 @@ func (dialector *Dialector) ExecContext(ctx context.Context, query string, args 
 		}
 	}
 
-	// Sanitize UPDATE SQL (Remove ID from SET)
+	query = rewriteExecSQL(query)
+
+	// Map args to map[string]interface{} — convert custom types to SDK 1.4
+	// counterparts so CBOR serialization produces SurrealDB-native values.
+	params := make(map[string]interface{})
+	for i, v := range args {
+		params[fmt.Sprintf("p%d", i+1)] = TypesM.ToSDKValue(v)
+	}
+
+	results, err := surrealdb.Query[interface{}](ctx, dialector.Conn, query, params)
+	if err != nil {
+		return nil, &Error{Op: "exec", Query: query, Err: err}
+	}
+
+	var count int64
+	if len(*results) > 0 {
+		res := (*results)[0]
+		if res.Status != "OK" {
+			return nil, newStatusError("exec", query, res.Status, res.Result)
+		}
+		if res.Result != nil {
+			val := reflect.ValueOf(res.Result)
+			if val.Kind() == reflect.Slice || val.Kind() == reflect.Array {
+				count = int64(val.Len())
+			} else {
+				count = 1
+			}
+		}
+	}
+
+	return DriverResult{Rows: count}, nil
+}
+
+// rewriteExecSQL applies the SurrealQL translations shared by the shared
+// connection and the interactive-transaction Exec paths:
+//   - strips `id = ...` assignments out of an UPDATE ... SET clause (the record
+//     id is immutable and lives in the UPDATE target, not the SET body)
+//   - rewrites standard-SQL "DELETE FROM x" into SurrealQL "DELETE x"
+func rewriteExecSQL(query string) string {
+	// Sanitize UPDATE SQL (remove id from SET).
 	if len(query) > 6 && strings.HasPrefix(strings.ToUpper(query), "UPDATE") {
 		lowerSql := strings.ToLower(query)
 		setIdx := strings.Index(lowerSql, " set ")
@@ -83,7 +122,7 @@ func (dialector *Dialector) ExecContext(ctx context.Context, query string, args 
 		}
 	}
 
-	// Translate standard SQL DELETE FROM to SurrealQL DELETE
+	// Translate standard SQL DELETE FROM to SurrealQL DELETE.
 	if len(query) > 12 && strings.HasPrefix(strings.ToUpper(strings.TrimSpace(query)), "DELETE FROM ") {
 		idx := strings.Index(strings.ToUpper(query), "DELETE FROM ")
 		if idx != -1 {
@@ -91,35 +130,7 @@ func (dialector *Dialector) ExecContext(ctx context.Context, query string, args 
 		}
 	}
 
-	// Map args to map[string]interface{} — convert custom types to SDK 1.4
-	// counterparts so CBOR serialization produces SurrealDB-native values.
-	params := make(map[string]interface{})
-	for i, v := range args {
-		params[fmt.Sprintf("p%d", i+1)] = TypesM.ToSDKValue(v)
-	}
-
-	results, err := surrealdb.Query[interface{}](ctx, dialector.Conn, query, params)
-	if err != nil {
-		return nil, err
-	}
-
-	var count int64
-	if len(*results) > 0 {
-		res := (*results)[0]
-		if res.Status != "OK" {
-			return nil, fmt.Errorf("surrealdb exec error: %v", res)
-		}
-		if res.Result != nil {
-			val := reflect.ValueOf(res.Result)
-			if val.Kind() == reflect.Slice || val.Kind() == reflect.Array {
-				count = int64(val.Len())
-			} else {
-				count = 1
-			}
-		}
-	}
-
-	return DriverResult{Rows: count}, nil
+	return query
 }
 
 // extractRecordID coerces an interface{} arg value into a *sdkModels.RecordID.

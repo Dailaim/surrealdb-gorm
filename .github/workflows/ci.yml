@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          check-latest: true
+
+      - name: Start SurrealDB
+        run: docker compose up -d
+
+      - name: Wait for SurrealDB to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/health > /dev/null; then
+              echo "SurrealDB is ready"
+              exit 0
+            fi
+            echo "waiting for SurrealDB... ($i)"
+            sleep 2
+          done
+          echo "SurrealDB did not become ready in time" >&2
+          docker compose logs surrealdb
+          exit 1
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        env:
+          SURREALDB_DSN: ws://localhost:8000/rpc?namespace=test&database=test&username=root&password=root
+        run: go test ./... -v
+
+      - name: Stop SurrealDB
+        if: always()
+        run: docker compose down

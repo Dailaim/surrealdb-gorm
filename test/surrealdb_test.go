@@ -2,6 +2,7 @@ package surrealdb_test
 
 import (
 	"fmt"
+	"os"
 	"testing" // Ensure time is imported
 	"time"
 
@@ -11,6 +12,16 @@ import (
 	"github.com/dailaim/surrealdb-gorm"
 	"github.com/dailaim/surrealdb-gorm/models"
 )
+
+// testDSN returns the SurrealDB connection string for the test suite. It can be
+// overridden with the SURREALDB_DSN environment variable (used by CI); otherwise
+// it falls back to a local development instance.
+func testDSN() string {
+	if dsn := os.Getenv("SURREALDB_DSN"); dsn != "" {
+		return dsn
+	}
+	return "ws://localhost:8000/rpc?namespace=test&database=test&username=root&password=root"
+}
 
 func getDialector(db *gorm.DB) *surrealdb.Dialector {
 	return db.ConnPool.(*surrealdb.Dialector)
@@ -28,7 +39,7 @@ func (u *User) BeforeDelete(tx *gorm.DB) (err error) {
 }
 
 func setupDB(t *testing.T) *gorm.DB {
-	dsn := "ws://10.89.1.1:8000/rpc?namespace=test&database=test&username=root&password=root"
+	dsn := testDSN()
 	db, err := gorm.Open(surrealdb.Open(dsn), &gorm.Config{
 		SkipDefaultTransaction: true,
 		Logger:                 logger.Default.LogMode(logger.Warn),

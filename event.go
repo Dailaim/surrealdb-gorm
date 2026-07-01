@@ -12,8 +12,8 @@ type EventOptions struct {
 	When      string // WHEN condition expression
 	Then      string // THEN action expression or block
 	Async     bool
-	Retry     int    // ASYNC RETRY count
-	MaxDepth  int    // ASYNC MAXDEPTH
+	Retry     int // ASYNC RETRY count
+	MaxDepth  int // ASYNC MAXDEPTH
 	Comment   string
 }
 

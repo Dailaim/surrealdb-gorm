@@ -12,15 +12,15 @@ import (
 // ============================================================================
 type AlterTableOptions struct {
 	// Schema changes the table type. Only one may be true.
-	SchemaFull  bool
-	SchemaLess  bool
-	DropComment bool
-	DropChangefeed bool
-	Compact     bool
-	Changefeed  string   // e.g. "1d" or "1h"
-	IncludeOriginal bool // adds INCLUDE ORIGINAL to CHANGEFEED
-	Comment     string
-	Permissions string   // e.g. "NONE" or "FULL" or a custom expression
+	SchemaFull      bool
+	SchemaLess      bool
+	DropComment     bool
+	DropChangefeed  bool
+	Compact         bool
+	Changefeed      string // e.g. "1d" or "1h"
+	IncludeOriginal bool   // adds INCLUDE ORIGINAL to CHANGEFEED
+	Comment         string
+	Permissions     string // e.g. "NONE" or "FULL" or a custom expression
 }
 
 // AlterTable executes an ALTER TABLE statement against SurrealDB.
@@ -82,12 +82,12 @@ type AlterFieldOptions struct {
 	// ADD/SET clauses
 	Flexible      bool
 	Readonly      bool
-	Reference     string   // e.g. "ON DELETE UNSET" or "ON DELETE REJECT"
-	Type          string   // SurrealDB type: string, int, datetime, etc.
-	Value         string   // VALUE expression
-	Assert        string   // ASSERT expression
-	Default       string   // DEFAULT expression
-	DefaultAlways bool     // DEFAULT ALWAYS @expression
+	Reference     string // e.g. "ON DELETE UNSET" or "ON DELETE REJECT"
+	Type          string // SurrealDB type: string, int, datetime, etc.
+	Value         string // VALUE expression
+	Assert        string // ASSERT expression
+	Default       string // DEFAULT expression
+	DefaultAlways bool   // DEFAULT ALWAYS @expression
 	Comment       string
 }
 
@@ -95,17 +95,37 @@ type AlterFieldOptions struct {
 func (m Migrator) AlterField(table, field string, opts AlterFieldOptions) error {
 	var parts []string
 
-	if opts.DropType      { parts = append(parts, "DROP TYPE") }
-	if opts.DropFlexible  { parts = append(parts, "DROP FLEXIBLE") }
-	if opts.DropReadonly  { parts = append(parts, "DROP READONLY") }
-	if opts.DropValue     { parts = append(parts, "DROP VALUE") }
-	if opts.DropAssert    { parts = append(parts, "DROP ASSERT") }
-	if opts.DropDefault   { parts = append(parts, "DROP DEFAULT") }
-	if opts.DropComment   { parts = append(parts, "DROP COMMENT") }
-	if opts.DropReference { parts = append(parts, "DROP REFERENCE") }
+	if opts.DropType {
+		parts = append(parts, "DROP TYPE")
+	}
+	if opts.DropFlexible {
+		parts = append(parts, "DROP FLEXIBLE")
+	}
+	if opts.DropReadonly {
+		parts = append(parts, "DROP READONLY")
+	}
+	if opts.DropValue {
+		parts = append(parts, "DROP VALUE")
+	}
+	if opts.DropAssert {
+		parts = append(parts, "DROP ASSERT")
+	}
+	if opts.DropDefault {
+		parts = append(parts, "DROP DEFAULT")
+	}
+	if opts.DropComment {
+		parts = append(parts, "DROP COMMENT")
+	}
+	if opts.DropReference {
+		parts = append(parts, "DROP REFERENCE")
+	}
 
-	if opts.Flexible  { parts = append(parts, "FLEXIBLE") }
-	if opts.Readonly  { parts = append(parts, "READONLY") }
+	if opts.Flexible {
+		parts = append(parts, "FLEXIBLE")
+	}
+	if opts.Readonly {
+		parts = append(parts, "READONLY")
+	}
 	if opts.Reference != "" {
 		parts = append(parts, fmt.Sprintf("REFERENCE %s", opts.Reference))
 	}

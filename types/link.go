@@ -89,18 +89,19 @@ func (l *Link[T]) Scan(value interface{}) error {
 		return nil
 	}
 
-	// 3. Si no es un objeto, asumimos que es el string del ID (ej: "book:123")
-	// En GORM/Surreal a veces el ID viene con comillas extra, las limpiamos si es necesario
-	var idString string
-	// Intentamos decodificar como JSON string por si viene con comillas "\"book:1\""
-	if err := json.Unmarshal(data, &idString); err == nil {
-		l.ID.StringToRecordID(idString)
-	} else {
-		// Si falla, lo tomamos como string crudo
-		l.ID.StringToRecordID(string(data))
+	// 3. Not an object: treat it as the record ID string (e.g. "book:123").
+	// l.ID may be nil at this point, so always allocate before writing to it
+	// (StringToRecordID has a pointer receiver and would panic on a nil receiver).
+	if l.ID == nil {
+		l.ID = &RecordID{}
 	}
-
-	return nil
+	// SurrealDB sometimes wraps the id in extra quotes ("\"book:1\""); decode as a
+	// JSON string first and fall back to the raw bytes.
+	var idString string
+	if err := json.Unmarshal(data, &idString); err == nil {
+		return l.ID.StringToRecordID(idString)
+	}
+	return l.ID.StringToRecordID(string(data))
 }
 
 // Value implementa driver.Valuer (Escritura hacia la BD)

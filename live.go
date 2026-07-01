@@ -73,10 +73,10 @@ func KillLiveQuery(db *gorm.DB, liveQueryID string) error {
 
 // LiveQuery is a convenience wrapper for managing a single live query subscription.
 type LiveQuery struct {
-	DB     *gorm.DB
-	ID     string
-	Diff   bool
-	Table  string
+	DB    *gorm.DB
+	ID    string
+	Diff  bool
+	Table string
 }
 
 // NewLiveQuery creates a new live query subscription.

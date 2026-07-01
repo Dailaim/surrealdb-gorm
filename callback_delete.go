@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/surrealdb/surrealdb.go"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -77,11 +76,9 @@ func DeleteCallback(db *gorm.DB) {
 
 				// If the edge model has DeletedAt and is not Unscoped, perform soft-delete.
 				if hasDeletedAt(db.Statement.Model) && !db.Statement.Unscoped {
-					_, err := surrealdb.Query[interface{}](
-						db.Statement.Context, dialector.Conn,
+					_, err := execTxQuery(db, dialector,
 						"UPDATE $id SET deleted_at = time::now(), updated_at = time::now()",
-						map[string]interface{}{"id": &recID.RecordID},
-					)
+						map[string]interface{}{"id": &recID.RecordID})
 					if err != nil {
 						db.AddError(err)
 						return
@@ -92,11 +89,9 @@ func DeleteCallback(db *gorm.DB) {
 				}
 
 				// Hard delete for edges without DeletedAt or when Unscoped.
-				results, err := surrealdb.Query[interface{}](
-					db.Statement.Context, dialector.Conn,
+				results, err := execTxQuery(db, dialector,
 					"DELETE $id",
-					map[string]interface{}{"id": &recID.RecordID},
-				)
+					map[string]interface{}{"id": &recID.RecordID})
 				if err != nil {
 					db.AddError(err)
 					return
@@ -130,15 +125,9 @@ func DeleteCallback(db *gorm.DB) {
 			}
 			if softIdent != nil {
 				if id := softIdent.GetID(); id != nil {
-					nativeID := &id.RecordID
-					var qErr error
-					q := "UPDATE $id SET deleted_at = time::now(), updated_at = time::now()"
-					qp := map[string]interface{}{"id": nativeID}
-					if txConn, ok2 := db.Statement.ConnPool.(*SurrealTx); ok2 {
-						_, qErr = surrealdb.Query[interface{}](db.Statement.Context, txConn.SDKTx(), q, qp)
-					} else {
-						_, qErr = surrealdb.Query[interface{}](db.Statement.Context, dialector.Conn, q, qp)
-					}
+					_, qErr := execTxQuery(db, dialector,
+						"UPDATE $id SET deleted_at = time::now(), updated_at = time::now()",
+						map[string]interface{}{"id": &id.RecordID})
 					if qErr != nil {
 						db.AddError(qErr)
 					} else {
@@ -165,11 +154,9 @@ func DeleteCallback(db *gorm.DB) {
 			}
 			if hardIdent != nil {
 				if id := hardIdent.GetID(); id != nil {
-					results, err := surrealdb.Query[interface{}](
-						db.Statement.Context, dialector.Conn,
+					results, err := execTxQuery(db, dialector,
 						"DELETE $id",
-						map[string]interface{}{"id": &id.RecordID},
-					)
+						map[string]interface{}{"id": &id.RecordID})
 					if err != nil {
 						db.AddError(err)
 						return

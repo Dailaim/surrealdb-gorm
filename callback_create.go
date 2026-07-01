@@ -30,6 +30,16 @@ func CreateCallback(db *gorm.DB) {
 		return
 	}
 
+	// Trace the create to GORM's logger so it shows under db.Debug() like the
+	// query/update/delete paths. Creates go through the SDK, not executeSQL, so
+	// we synthesize a descriptive statement.
+	begin := time.Now()
+	defer func() {
+		db.Logger.Trace(db.Statement.Context, begin, func() (string, int64) {
+			return fmt.Sprintf("CREATE `%s`", db.Statement.Table), db.RowsAffected
+		}, db.Error)
+	}()
+
 	if db.Statement.Schema != nil {
 		if !db.Statement.Unscoped {
 			for _, c := range db.Statement.Schema.CreateClauses {
@@ -259,7 +269,13 @@ func CreateCallback(db *gorm.DB) {
 			db.AddError(err)
 			return
 		}
-		_, err = surrealdb.Insert[interface{}](db.Statement.Context, dialector.Conn, table, data)
+		// Route through the interactive transaction if one is open so bulk
+		// inserts participate in db.Transaction(...).
+		if txConn, ok := db.Statement.ConnPool.(*SurrealTx); ok {
+			_, err = surrealdb.Insert[interface{}](db.Statement.Context, txConn.SDKTx(), table, data)
+		} else {
+			_, err = surrealdb.Insert[interface{}](db.Statement.Context, dialector.Conn, table, data)
+		}
 		if err != nil {
 			db.AddError(err)
 			return

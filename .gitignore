@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+
+# Go
+*.test
+*.out
+coverage.txt
+coverage.html
+/dist/
+/bin/
+
+# jujutsu (local VCS metadata)
+.jj/
+
+# Scratch / local overrides
+*.local

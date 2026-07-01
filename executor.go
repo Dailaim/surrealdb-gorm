@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/surrealdb/surrealdb.go"
 	sdkModels "github.com/surrealdb/surrealdb.go/pkg/models"
@@ -14,9 +15,42 @@ import (
 	TypesM "github.com/dailaim/surrealdb-gorm/types"
 )
 
+// txFromStatement returns the interactive transaction bound to the current GORM
+// statement, if one is open. It is nil-safe: a nil Statement yields (nil, false).
+func txFromStatement(db *gorm.DB) (*SurrealTx, bool) {
+	if db == nil || db.Statement == nil {
+		return nil, false
+	}
+	txConn, ok := db.Statement.ConnPool.(*SurrealTx)
+	return txConn, ok
+}
+
+// execTxQuery runs a SurrealQL statement against the interactive transaction
+// bound to the current GORM statement, if one is open, otherwise against the
+// shared connection. Centralizing this here ensures every write path (edges,
+// bulk inserts, soft-deletes) participates in db.Transaction(...) and gets
+// read-your-own-writes, instead of silently escaping to the shared connection.
+func execTxQuery(db *gorm.DB, d *Dialector, sql string, params map[string]interface{}) (*[]surrealdb.QueryResult[interface{}], error) {
+	if txConn, ok := txFromStatement(db); ok {
+		return surrealdb.Query[interface{}](db.Statement.Context, txConn.SDKTx(), sql, params)
+	}
+	return surrealdb.Query[interface{}](db.Statement.Context, d.Conn, sql, params)
+}
+
 func executeSQL(db *gorm.DB) {
 	dialector := db.Dialector.(*Dialector)
 	sql := db.Statement.SQL.String()
+
+	// Emit the final SurrealQL to GORM's logger so db.Debug(), slow-query
+	// logging, and error logging all work. `sql` is captured by reference, so
+	// the closure reports the fully-rewritten statement regardless of which
+	// return path fires.
+	begin := time.Now()
+	defer func() {
+		db.Logger.Trace(db.Statement.Context, begin, func() (string, int64) {
+			return sql, db.RowsAffected
+		}, db.Error)
+	}()
 
 	// Map table name to canonical form
 	actualTable := db.Statement.Table
@@ -133,14 +167,7 @@ func executeSQL(db *gorm.DB) {
 		sql = strings.ReplaceAll(sql, fmt.Sprintf("%s.", actualTable), "")
 	}
 
-	// Translate DELETE FROM
-	if len(sql) > 12 && strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "DELETE FROM ") {
-		idx := strings.Index(strings.ToUpper(sql), "DELETE FROM ")
-		if idx != -1 {
-			sql = sql[:idx] + "DELETE " + strings.TrimSpace(sql[idx+12:])
-		}
-	}
-	// Duplicate block (keep for safety)
+	// Translate DELETE FROM → DELETE (SurrealQL has no FROM in DELETE).
 	if len(sql) > 12 && strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "DELETE FROM ") {
 		idx := strings.Index(strings.ToUpper(sql), "DELETE FROM ")
 		if idx != -1 {
@@ -206,7 +233,7 @@ func executeSQL(db *gorm.DB) {
 		results, err = surrealdb.Query[interface{}](db.Statement.Context, dialector.Conn, sql, params)
 	}
 	if err != nil {
-		db.AddError(err)
+		db.AddError(&Error{Op: "query", Query: sql, Err: err})
 		return
 	}
 
@@ -214,7 +241,7 @@ func executeSQL(db *gorm.DB) {
 		res := (*results)[0]
 
 		if res.Status != "OK" {
-			db.AddError(fmt.Errorf("surrealdb query error: %v", res))
+			db.AddError(newStatusError("query", sql, res.Status, res.Result))
 			return
 		}
 

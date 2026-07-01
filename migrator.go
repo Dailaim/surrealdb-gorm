@@ -17,6 +17,16 @@ type Migrator struct {
 	migrator.Migrator
 }
 
+// ctx returns the caller's context when one is bound to the migrator's DB,
+// falling back to context.Background(). This propagates deadlines/cancellation
+// into the INFO FOR ... introspection queries the migrator runs directly.
+func (m Migrator) ctx() context.Context {
+	if m.DB != nil && m.DB.Statement != nil && m.DB.Statement.Context != nil {
+		return m.DB.Statement.Context
+	}
+	return context.Background()
+}
+
 func (m Migrator) AutoMigrate(dst ...interface{}) error {
 	// Fetch existing tables once
 	existingTables, err := m.getExistingTables()
@@ -121,7 +131,7 @@ func (m Migrator) getExistingTables() (map[string]string, error) {
 		Tables map[string]string `json:"tables"`
 	}
 
-	results, err := surrealdb.Query[InfoForDB](context.Background(), dialector.Conn, "INFO FOR DB", nil)
+	results, err := surrealdb.Query[InfoForDB](m.ctx(), dialector.Conn, "INFO FOR DB", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -145,25 +155,25 @@ func (m Migrator) CreateTable(models ...interface{}) error {
 				isEdge = true
 			}
 
-		schemaClause := "SCHEMALESS"
-		// Check if the model opts-in to SCHEMAFULL via the SchemaFull interface.
-		schemaFullType := reflect.TypeOf((*localModels.SchemaFull)(nil)).Elem()
-		if mt.Implements(schemaFullType) || reflect.PointerTo(mt).Implements(schemaFullType) {
-			schemaClause = "SCHEMAFULL"
-		}
-
-		var defineSQL string
-		if isEdge {
-			inTable := inferEdgeEndpointTable(mt, "in")
-			outTable := inferEdgeEndpointTable(mt, "out")
-			if inTable != "" && outTable != "" {
-				defineSQL = fmt.Sprintf("DEFINE TABLE %s TYPE RELATION FROM %s TO %s %s", tableName, inTable, outTable, schemaClause)
-			} else {
-				defineSQL = fmt.Sprintf("DEFINE TABLE %s TYPE RELATION %s", tableName, schemaClause)
+			schemaClause := "SCHEMALESS"
+			// Check if the model opts-in to SCHEMAFULL via the SchemaFull interface.
+			schemaFullType := reflect.TypeOf((*localModels.SchemaFull)(nil)).Elem()
+			if mt.Implements(schemaFullType) || reflect.PointerTo(mt).Implements(schemaFullType) {
+				schemaClause = "SCHEMAFULL"
 			}
-		} else {
-			defineSQL = fmt.Sprintf("DEFINE TABLE %s %s", tableName, schemaClause)
-		}
+
+			var defineSQL string
+			if isEdge {
+				inTable := inferEdgeEndpointTable(mt, "in")
+				outTable := inferEdgeEndpointTable(mt, "out")
+				if inTable != "" && outTable != "" {
+					defineSQL = fmt.Sprintf("DEFINE TABLE %s TYPE RELATION FROM %s TO %s %s", tableName, inTable, outTable, schemaClause)
+				} else {
+					defineSQL = fmt.Sprintf("DEFINE TABLE %s TYPE RELATION %s", tableName, schemaClause)
+				}
+			} else {
+				defineSQL = fmt.Sprintf("DEFINE TABLE %s %s", tableName, schemaClause)
+			}
 
 			if err := m.DB.Exec(defineSQL).Error; err != nil {
 				return err
@@ -291,7 +301,7 @@ func (m Migrator) removeObsoleteFields(stmt *gorm.Statement, isEdge bool) error 
 	type InfoForTable struct {
 		Fields map[string]string `json:"fields"`
 	}
-	res, err := surrealdb.Query[InfoForTable](context.Background(), dialector.Conn,
+	res, err := surrealdb.Query[InfoForTable](m.ctx(), dialector.Conn,
 		fmt.Sprintf("INFO FOR TABLE `%s`", tableName), nil)
 	if err != nil || res == nil || len(*res) == 0 {
 		return nil // best-effort cleanup

@@ -74,8 +74,14 @@ func UpdateCallback(db *gorm.DB) {
 						Out:      *outID,
 						Relation: sdkModels.Table(registeredEdge),
 					}
-					if _, err := surrealdb.InsertRelation[interface{}](db.Statement.Context, dialector.Conn, rel2); err != nil {
-						db.AddError(err)
+					var relErr error
+					if txConn, ok := db.Statement.ConnPool.(*SurrealTx); ok {
+						_, relErr = surrealdb.InsertRelation[interface{}](db.Statement.Context, txConn.SDKTx(), rel2)
+					} else {
+						_, relErr = surrealdb.InsertRelation[interface{}](db.Statement.Context, dialector.Conn, rel2)
+					}
+					if relErr != nil {
+						db.AddError(relErr)
 						return
 					}
 				}
