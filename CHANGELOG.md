@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for an SDK model). Supports `MarshalCBOR`/`UnmarshalCBOR`, JSON string form,
   and `Scan`/`Value`; `AutoMigrate` maps the field to `file`. Verified
   round-trip against SurrealDB v3 with `--allow-experimental files`.
+- **File content I/O** — `Migrator.DefineBucket`/`RemoveBucket` and the
+  `PutFile`/`GetFile`/`FileExists`/`DeleteFile` helpers move the actual bytes in
+  and out of a bucket (the `file` field only holds the pointer).
 
 ### Notes
 

@@ -59,6 +59,24 @@ func (m Migrator) RemoveFunction(name string) error {
 	return m.DB.Exec(fmt.Sprintf("REMOVE FUNCTION IF EXISTS fn::%s", name)).Error
 }
 
+// DefineBucket defines a storage bucket for the file type (SurrealDB v3+,
+// experimental files feature). backend may be "memory", "file:/path", or an
+// object-store URL; empty uses the server default.
+//
+//	m.DefineBucket("assets", "memory")
+func (m Migrator) DefineBucket(name, backend string) error {
+	sql := fmt.Sprintf("DEFINE BUCKET IF NOT EXISTS %s", name)
+	if backend != "" {
+		sql += fmt.Sprintf(" BACKEND %q", backend)
+	}
+	return m.DB.Exec(sql).Error
+}
+
+// RemoveBucket removes a storage bucket.
+func (m Migrator) RemoveBucket(name string) error {
+	return m.DB.Exec(fmt.Sprintf("REMOVE BUCKET IF EXISTS %s", name)).Error
+}
+
 // SequenceOptions configures a DEFINE SEQUENCE statement (SurrealDB v3+).
 type SequenceOptions struct {
 	Batch   int    // optional; 0 omits BATCH
