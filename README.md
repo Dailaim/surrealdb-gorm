@@ -6,14 +6,14 @@
 
 A [GORM v2](https://gorm.io) driver for [SurrealDB](https://surrealdb.com), mapping GORM's relational model onto SurrealDB's document-graph hybrid database using native SurrealQL.
 
-> **Status**: v1.3.0 — stable API. SurrealDB **v3+ recommended** (interactive transactions, `ALTER FIELD`, `DROP CHANGEFEED`, vector `<|k,EF|>` search require it); works on v2 without those features. The driver creates the namespace/database on connect if missing and auto-reconnects on transient WebSocket drops.
+> **Status**: v1.4.0 — stable API. SurrealDB **v3+ recommended** (interactive transactions, `ALTER FIELD`, `DROP CHANGEFEED`, vector `<|k,EF|>` search require it); works on v2 without those features. The driver creates the namespace/database on connect if missing and auto-reconnects on transient WebSocket drops.
 
 ---
 
 ## Installation
 
 ```bash
-go get github.com/dailaim/surrealdb-gorm@v1.3.0
+go get github.com/dailaim/surrealdb-gorm@v1.4.0
 ```
 
 **Requirements**: Go 1.25+, SurrealDB v3+ (v2 works with reduced features), WebSocket endpoint. SDK: `surrealdb.go` v1.5.0.
@@ -149,7 +149,17 @@ type Ticket struct {
 }
 ```
 
-> `set<T>` is reachable as a schema type, but SurrealDB does not auto-coerce a plain array to a set on write. The v3 `file` type has no SDK model yet.
+The v3 **`file`** type is supported via `types.File` (`f"bucket:/key"`, CBOR tag 55); the server needs the experimental files feature.
+
+```go
+type Doc struct {
+    models.BaseModel
+    Attachment types.File `json:"attachment"` // f"bucket:/key"
+}
+db.Create(&Doc{Attachment: types.NewFile("mybucket", "report.pdf")})
+```
+
+> `set<T>` is reachable as a schema type, but SurrealDB does not auto-coerce a plain array to a set on write.
 
 ---
 
@@ -439,7 +449,7 @@ clauses/            FETCH, graph SELECT clause extensions
 - **Preload cardinality**: SurrealDB `FETCH` returns only the first related record for 1:N edges. Use raw `SELECT ... FETCH` for bulk graph traversal.
 - **Interactive transactions** require SurrealDB v3+ (WebSocket only). `db.Raw(...).Rows()` inside a transaction is not yet wired.
 - **Reconnection** recovers transient drops (server stays up, token valid); a full server restart that wipes state / regenerates signing keys is not recoverable.
-- **`set<T>`** is not auto-coerced from arrays on write, and the v3 **`file`** type has no SDK model yet.
+- **`set<T>`** is not auto-coerced from arrays on write. The v3 **`file`** type (via `types.File`) needs the server's experimental files feature.
 
 ---
 

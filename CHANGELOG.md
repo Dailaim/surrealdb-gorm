@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-07-02
+
+### Added
+
+- **`types.File`** — SurrealDB v3 file pointer (`f"bucket:/key"`), encoded over
+  the wire as CBOR tag 55 `[bucket, key]` (implemented directly, without waiting
+  for an SDK model). Supports `MarshalCBOR`/`UnmarshalCBOR`, JSON string form,
+  and `Scan`/`Value`; `AutoMigrate` maps the field to `file`. Verified
+  round-trip against SurrealDB v3 with `--allow-experimental files`.
+
+### Notes
+
+- The `file` type requires the server's experimental files feature; the gated
+  `TestFileType` (`SURREALDB_FILES_TEST=1`) documents this.
+
 ## [1.3.0] - 2026-07-01
 
 ### Added
@@ -138,6 +153,7 @@ First stable release of the GORM v2 driver for SurrealDB.
   to a local development instance.
 - Full suite: 105 passing, 1 intentional skip (raw `LIVE SELECT` via Scan).
 
+[1.4.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.4.0
 [1.3.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.3.0
 [1.2.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.1.0

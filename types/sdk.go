@@ -222,6 +222,14 @@ func ToSDKValue(v interface{}) interface{} {
 			return nil
 		}
 		return val.String()
+	case File:
+		// File implements MarshalCBOR (tag 55), which surrealcbor honors.
+		return val
+	case *File:
+		if val == nil {
+			return nil
+		}
+		return *val
 	}
 	return v
 }
