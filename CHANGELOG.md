@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **File content I/O** — `Migrator.DefineBucket`/`RemoveBucket` and the
+  `PutFile`/`GetFile`/`FileExists`/`DeleteFile`/`FileHead`/`ListFiles`/`CopyFile`/
+  `RenameFile` helpers move the actual bytes in and out of a bucket (the `file`
+  field from v1.4.0 only holds the pointer).
 - `optimizeFindByIDList` (query callback) — the multi-record counterpart to the
   existing single-record `optimizeFindByID`. Unit-tested without a database.
 
@@ -38,14 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for an SDK model). Supports `MarshalCBOR`/`UnmarshalCBOR`, JSON string form,
   and `Scan`/`Value`; `AutoMigrate` maps the field to `file`. Verified
   round-trip against SurrealDB v3 with `--allow-experimental files`.
-- **File content I/O** — `Migrator.DefineBucket`/`RemoveBucket` and the
-  `PutFile`/`GetFile`/`FileExists`/`DeleteFile` helpers move the actual bytes in
-  and out of a bucket (the `file` field only holds the pointer).
 
 ### Notes
 
 - The `file` type requires the server's experimental files feature; the gated
   `TestFileType` (`SURREALDB_FILES_TEST=1`) documents this.
+- File content I/O (bucket read/write helpers) landed in v1.5.0.
 
 ## [1.3.0] - 2026-07-01
 
