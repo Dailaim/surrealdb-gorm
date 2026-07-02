@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-07-01
+
+### Added
+
+- **Vector indexes** (`HNSW` / `MTREE`) in `AutoMigrate` via the index tag, e.g.
+  `gorm:"index:idx_emb,class:HNSW,option:dimension=768 dist=cosine efc=150 m=12"`.
+  Enables ANN/kNN similarity search on embedding fields (`<|k,EF|>`).
+- **DEFINE helpers** for statements outside GORM's schema model: `DefineParam`,
+  `DefineFunction`, `DefineSequence` (v3), `DefineUser` and their `Remove*`
+  counterparts, plus generic `Define`/`Remove` escape hatches for
+  `ACCESS`/`API`/`BUCKET`/`CONFIG`/`MODEL`.
+- **Computed & advanced fields** from struct tags in `AutoMigrate`:
+  `gorm:"value:<expr>"` (computed `VALUE`), `gorm:"flexible"` (`FLEXIBLE`
+  objects), `gorm:"permissions:<clause>"`, and explicit `gorm:"assert:<expr>"`.
+- Verified **literal/enum union types** work through the `type:` tag
+  (`gorm:"type:'a'|'b'|'c'"`), enforced by the schema.
+
+### Notes
+
+- `set<T>` is reachable as a schema type but SurrealDB does not auto-coerce a
+  plain array to a set on write, so it is not wired for value round-trips.
+- The v3 `file` type has no SDK model in surrealdb.go v1.5.0 yet, so it is not
+  supported as a runtime type.
+
 ## [1.2.0] - 2026-07-01
 
 ### Added
@@ -114,6 +138,7 @@ First stable release of the GORM v2 driver for SurrealDB.
   to a local development instance.
 - Full suite: 105 passing, 1 intentional skip (raw `LIVE SELECT` via Scan).
 
+[1.3.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.3.0
 [1.2.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.0.0

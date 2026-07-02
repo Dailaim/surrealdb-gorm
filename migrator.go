@@ -330,12 +330,22 @@ func (m Migrator) defineFields(stmt *gorm.Statement, isEdge bool, isNewTable boo
 			typeExpr = fmt.Sprintf("option<%s>", dataType)
 		}
 
-		parts := []string{
-			fmt.Sprintf("DEFINE FIELD %s `%s` ON `%s` TYPE %s", clause, dbName, tableName, typeExpr),
+		// FLEXIBLE (gorm:"flexible") allows arbitrary nested content on object
+		// fields; it must precede TYPE in the DEFINE FIELD statement.
+		flexible := ""
+		if _, ok := field.TagSettings["FLEXIBLE"]; ok {
+			flexible = "FLEXIBLE "
 		}
 
-		// ASSERT for NOT NULL fields.
-		if field.NotNull {
+		parts := []string{
+			fmt.Sprintf("DEFINE FIELD %s `%s` ON `%s` %sTYPE %s", clause, dbName, tableName, flexible, typeExpr),
+		}
+
+		// ASSERT: explicit gorm:"assert:<expr>" wins; otherwise NOT NULL fields
+		// get a non-empty assertion.
+		if assertExpr, ok := field.TagSettings["ASSERT"]; ok && assertExpr != "" {
+			parts = append(parts, "ASSERT "+assertExpr)
+		} else if field.NotNull {
 			parts = append(parts, "ASSERT $value != NONE AND $value != NULL")
 		}
 
@@ -357,6 +367,18 @@ func (m Migrator) defineFields(stmt *gorm.Statement, isEdge bool, isNewTable boo
 		if field.HasDefaultValue && field.DefaultValue != "" {
 			defaultVal := strings.ReplaceAll(field.DefaultValue, "'", "\\'")
 			parts = append(parts, fmt.Sprintf("DEFAULT '%s'", defaultVal))
+		}
+
+		// VALUE: a computed-field expression, e.g.
+		// gorm:"value:string::uppercase($value)". Raw SurrealQL.
+		if valueExpr, ok := field.TagSettings["VALUE"]; ok && valueExpr != "" {
+			parts = append(parts, "VALUE "+valueExpr)
+		}
+
+		// PERMISSIONS: field-level permissions, e.g. gorm:"permissions:FULL" or a
+		// custom clause. Raw SurrealQL.
+		if perms, ok := field.TagSettings["PERMISSIONS"]; ok && perms != "" {
+			parts = append(parts, "PERMISSIONS "+perms)
 		}
 
 		sql := strings.Join(parts, " ")
