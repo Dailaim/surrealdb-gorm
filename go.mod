@@ -11,12 +11,15 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/dolthub/maphash v0.1.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/gofrs/uuid v4.4.0+incompatible // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
+	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/kr/text v0.2.0 // indirect
+	github.com/lxzan/gws v1.8.9 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/text v0.20.0 // indirect

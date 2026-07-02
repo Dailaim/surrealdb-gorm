@@ -16,6 +16,11 @@ features rather than emulating them in Go.
   `DROP CHANGEFEED` require it). On connect, `Initialize` signs in, then runs
   `DEFINE NAMESPACE/DATABASE IF NOT EXISTS` before `USE` because v3 no longer
   auto-creates them (v2 did).
+- **Connection**: WebSocket DSNs use the SDK's reliable-websocket (`rews`) via
+  `connection.go`'s `dialConn`, which auto-reconnects and replays SignIn token +
+  USE on transient drops. Tune/disable with `ReconnectInterval` (see `dialConn`).
+  Still a single connection (no pool); the SDK mutex-serializes requests and tags
+  transactions by UUID, so it is concurrency-safe.
 - **DSN format**: `ws://host:port/rpc?namespace=NS&database=DB&username=USR&password=PWD`
 
 ---
