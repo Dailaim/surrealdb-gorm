@@ -465,6 +465,13 @@ func (m Migrator) defineIndexes(stmt *gorm.Statement) error {
 				}
 			}
 			sql = fmt.Sprintf("DEFINE INDEX IF NOT EXISTS `%s` ON `%s` FIELDS %s SEARCH ANALYZER %s", idx.Name, tableName, fields, analyzer)
+		case "HNSW", "MTREE":
+			// Vector (ANN/kNN) index for embedding fields. Parameters are carried
+			// in the option string as `key=value` pairs separated by `;`, e.g.
+			//   gorm:"index:idx_emb,class:HNSW,option:dimension=768;dist=cosine;efc=150;m=12"
+			// DIMENSION is required by SurrealDB.
+			sql = fmt.Sprintf("DEFINE INDEX IF NOT EXISTS `%s` ON `%s` FIELDS %s %s%s",
+				idx.Name, tableName, fields, idx.Class, buildVectorIndexParams(idx.Option))
 		default:
 			sql = fmt.Sprintf("DEFINE INDEX IF NOT EXISTS `%s` ON `%s` FIELDS %s", idx.Name, tableName, fields)
 		}
@@ -475,6 +482,37 @@ func (m Migrator) defineIndexes(stmt *gorm.Statement) error {
 	}
 
 	return nil
+}
+
+// buildVectorIndexParams turns an index option string of space-separated
+// `key=value` pairs into the SurrealDB vector-index parameter clause, e.g.
+// "dimension=4 dist=euclidean efc=150 m=12" -> " DIMENSION 4 DIST EUCLIDEAN EFC 150 M 12".
+// Space separation is used because GORM reserves `;` (setting separator) and
+// `,` (index sub-setting separator). Keys are emitted in SurrealDB's expected
+// order; unknown keys are ignored.
+func buildVectorIndexParams(option string) string {
+	order := []struct{ key, keyword string }{
+		{"dimension", "DIMENSION"},
+		{"type", "TYPE"},
+		{"dist", "DIST"},
+		{"efc", "EFC"},
+		{"m", "M"},
+		{"capacity", "CAPACITY"},
+	}
+	vals := map[string]string{}
+	for _, part := range strings.Fields(option) {
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) == 2 {
+			vals[strings.ToLower(strings.TrimSpace(kv[0]))] = strings.TrimSpace(kv[1])
+		}
+	}
+	var b strings.Builder
+	for _, o := range order {
+		if v := vals[o.key]; v != "" {
+			b.WriteString(" " + o.keyword + " " + v)
+		}
+	}
+	return b.String()
 }
 
 // isPrimaryKeyIndex reports whether the index covers only the primary-key field(s).
