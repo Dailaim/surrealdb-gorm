@@ -2,6 +2,8 @@ package surrealdb
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	sdkModels "github.com/surrealdb/surrealdb.go/pkg/models"
@@ -11,6 +13,60 @@ import (
 	"github.com/dailaim/surrealdb-gorm/clauses"
 	TypesM "github.com/dailaim/surrealdb-gorm/types"
 )
+
+// idInListRe matches an `id IN ($p1, $p2, ...)` predicate, with an optional
+// table qualifier and optional backticks.
+var idInListRe = regexp.MustCompile("(?:`?[A-Za-z0-9_]+`?\\.)?`?id`? IN \\(((?:\\$p\\d+(?:,\\s*)?)+)\\)")
+
+var placeholderRe = regexp.MustCompile(`\$p(\d+)`)
+
+// optimizeFindByIDList rewrites `SELECT ... FROM table WHERE id IN ($p1,$p2)`
+// into direct record access `SELECT ... FROM $p1, $p2`. GORM emits the SQL-style
+// `IN (a, b)` which is not SurrealQL array membership (it silently matches
+// nothing), so this both fixes correctness and follows SurrealDB's
+// direct-record-access performance guidance.
+func optimizeFindByIDList(db *gorm.DB) {
+	if db.Statement.Table == "" || len(db.Statement.Vars) == 0 {
+		return
+	}
+	sql := db.Statement.SQL.String()
+	m := idInListRe.FindStringSubmatch(sql)
+	if m == nil {
+		return
+	}
+	pred := m[0]  // full "`id` IN ($p1,$p2)"
+	inner := m[1] // "$p1,$p2"
+
+	// Every referenced placeholder must be a RecordID var.
+	phs := placeholderRe.FindAllStringSubmatch(inner, -1)
+	if len(phs) == 0 {
+		return
+	}
+	for _, ph := range phs {
+		idx, err := strconv.Atoi(ph[1])
+		if err != nil || idx < 1 || idx > len(db.Statement.Vars) {
+			return
+		}
+		switch db.Statement.Vars[idx-1].(type) {
+		case *sdkModels.RecordID, sdkModels.RecordID, *TypesM.RecordID, TypesM.RecordID:
+		default:
+			return
+		}
+	}
+
+	fromList := strings.Join(placeholderRe.FindAllString(inner, -1), ", ")
+	quotedTable := fmt.Sprintf("`%s`", db.Statement.Table)
+	sql = strings.Replace(sql, "FROM "+quotedTable, "FROM "+fromList, 1)
+
+	// Drop the id-membership predicate, preserving any remaining WHERE.
+	sql = strings.ReplaceAll(sql, "WHERE "+pred+" AND ", "WHERE ")
+	sql = strings.ReplaceAll(sql, " AND "+pred, "")
+	sql = strings.ReplaceAll(sql, "WHERE "+pred, "")
+	sql = strings.TrimRight(strings.TrimSpace(sql), " ")
+
+	db.Statement.SQL.Reset()
+	db.Statement.SQL.WriteString(sql)
+}
 
 func QueryCallback(db *gorm.DB) {
 	if db.Error != nil {
@@ -65,6 +121,7 @@ func QueryCallback(db *gorm.DB) {
 	}
 
 	optimizeFindByID(db)
+	optimizeFindByIDList(db)
 	executeSQL(db)
 }
 

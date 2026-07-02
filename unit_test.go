@@ -3,6 +3,10 @@ package surrealdb
 import (
 	"strings"
 	"testing"
+
+	"gorm.io/gorm"
+
+	TypesM "github.com/dailaim/surrealdb-gorm/types"
 )
 
 // normalizeWS collapses runs of whitespace to a single space and trims, so
@@ -44,5 +48,39 @@ func TestRewriteExecSQL(t *testing.T) {
 		if got := normalizeWS(rewriteExecSQL(c.in)); got != c.want {
 			t.Errorf("rewriteExecSQL(%q) =\n  %q\nwant\n  %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestOptimizeFindByIDList(t *testing.T) {
+	rid := func(s string) *TypesM.RecordID { r, _ := TypesM.ParseRecordID(s); return r }
+
+	newStmt := func(sql string, vars ...interface{}) *gorm.DB {
+		stmt := &gorm.Statement{Table: "users", Vars: vars}
+		stmt.SQL.WriteString(sql)
+		return &gorm.DB{Statement: stmt}
+	}
+
+	// id IN (...) with RecordID vars → direct record access, soft-delete kept.
+	db := newStmt(
+		"SELECT * FROM `users` WHERE `id` IN ($p1,$p2) AND (`deleted_at` IS NULL OR `deleted_at` IS NONE)",
+		rid("users:a"), rid("users:b"),
+	)
+	optimizeFindByIDList(db)
+	if got := normalizeWS(db.Statement.SQL.String()); got != "SELECT * FROM $p1, $p2 WHERE (`deleted_at` IS NULL OR `deleted_at` IS NONE)" {
+		t.Errorf("id-list rewrite = %q", got)
+	}
+
+	// Non-RecordID vars must NOT be rewritten.
+	db = newStmt("SELECT * FROM `users` WHERE `id` IN ($p1,$p2)", "a", "b")
+	optimizeFindByIDList(db)
+	if got := db.Statement.SQL.String(); got != "SELECT * FROM `users` WHERE `id` IN ($p1,$p2)" {
+		t.Errorf("non-recordid should be untouched, got %q", got)
+	}
+
+	// No id-IN predicate → untouched.
+	db = newStmt("SELECT * FROM `users` WHERE `name` = $p1", "x")
+	optimizeFindByIDList(db)
+	if got := db.Statement.SQL.String(); got != "SELECT * FROM `users` WHERE `name` = $p1" {
+		t.Errorf("no id-in should be untouched, got %q", got)
 	}
 }
