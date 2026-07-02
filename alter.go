@@ -284,9 +284,38 @@ func (m Migrator) DropField(table, column string) error {
 	return m.DB.Exec(fmt.Sprintf("REMOVE FIELD IF EXISTS `%s` ON TABLE `%s`", column, table)).Error
 }
 
-// RenameField renames a field on a table.
+// RenameField renames a field on a table. SurrealDB has no native
+// "ALTER TABLE ... RENAME FIELD", so this recreates the field definition under
+// the new name, copies the value on every record, unsets the old value, and
+// removes the old field definition.
 func (m Migrator) RenameField(table, oldName, newName string) error {
-	return m.DB.Exec(fmt.Sprintf("ALTER TABLE `%s` RENAME FIELD `%s` TO `%s`", table, oldName, newName)).Error
+	// Recreate the field definition (preserving TYPE/ASSERT/etc.) under the new
+	// name, derived from INFO FOR TABLE.
+	if fields, _, err := m.tableInfo(table); err == nil {
+		if def := fields[oldName]; def != "" {
+			newDef := def
+			for _, oldTok := range []string{"FIELD `" + oldName + "` ON", "FIELD " + oldName + " ON"} {
+				if strings.Contains(newDef, oldTok) {
+					newTok := "FIELD " + newName + " ON"
+					if strings.Contains(oldTok, "`") {
+						newTok = "FIELD `" + newName + "` ON"
+					}
+					newDef = strings.Replace(newDef, oldTok, newTok, 1)
+					if err := m.DB.Exec(newDef).Error; err != nil {
+						return err
+					}
+					break
+				}
+			}
+		}
+	}
+	if err := m.DB.Exec(fmt.Sprintf("UPDATE `%s` SET `%s` = `%s`", table, newName, oldName)).Error; err != nil {
+		return err
+	}
+	if err := m.DB.Exec(fmt.Sprintf("UPDATE `%s` UNSET `%s`", table, oldName)).Error; err != nil {
+		return err
+	}
+	return m.DB.Exec(fmt.Sprintf("REMOVE FIELD IF EXISTS `%s` ON TABLE `%s`", oldName, table)).Error
 }
 
 // RemoveTableIndex removes an index from a table (named RemoveTableIndex to

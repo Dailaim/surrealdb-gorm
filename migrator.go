@@ -143,6 +143,88 @@ func (m Migrator) getExistingTables() (map[string]string, error) {
 	return map[string]string{}, nil
 }
 
+// tableInfo returns the fields and indexes maps from INFO FOR TABLE. GORM's
+// default Migrator implementations of HasColumn/HasIndex generate
+// information_schema SQL that SurrealDB rejects, so these are overridden to use
+// SurrealDB's native introspection.
+func (m Migrator) tableInfo(table string) (fields, indexes map[string]string, err error) {
+	dialector, ok := m.DB.Dialector.(*Dialector)
+	if !ok || dialector.Conn == nil {
+		return nil, nil, fmt.Errorf("connection not initialized")
+	}
+	type info struct {
+		Fields  map[string]string `json:"fields"`
+		Indexes map[string]string `json:"indexes"`
+	}
+	res, err := surrealdb.Query[info](m.ctx(), dialector.Conn,
+		fmt.Sprintf("INFO FOR TABLE `%s`", table), nil)
+	if err != nil || res == nil || len(*res) == 0 {
+		return map[string]string{}, map[string]string{}, err
+	}
+	return (*res)[0].Result.Fields, (*res)[0].Result.Indexes, nil
+}
+
+// HasColumn reports whether the table for dst defines the given column. The
+// name may be a struct field name or a DB column name.
+func (m Migrator) HasColumn(dst interface{}, field string) bool {
+	var found bool
+	_ = m.RunWithValue(dst, func(stmt *gorm.Statement) error {
+		name := field
+		if stmt.Schema != nil {
+			if f := stmt.Schema.LookUpField(field); f != nil && f.DBName != "" {
+				name = f.DBName
+			}
+		}
+		fields, _, err := m.tableInfo(stmt.Table)
+		if err != nil {
+			return err
+		}
+		_, found = fields[name]
+		return nil
+	})
+	return found
+}
+
+// HasIndex reports whether the table for dst has an index with the given name.
+func (m Migrator) HasIndex(dst interface{}, name string) bool {
+	var found bool
+	_ = m.RunWithValue(dst, func(stmt *gorm.Statement) error {
+		idxName := name
+		if stmt.Schema != nil {
+			if idx := stmt.Schema.LookIndex(name); idx != nil && idx.Name != "" {
+				idxName = idx.Name
+			}
+		}
+		_, indexes, err := m.tableInfo(stmt.Table)
+		if err != nil {
+			return err
+		}
+		_, found = indexes[idxName]
+		return nil
+	})
+	return found
+}
+
+// RenameColumn renames a column on the table for dst. Names may be struct field
+// names or DB column names.
+func (m Migrator) RenameColumn(dst interface{}, oldName, newName string) error {
+	var rerr error
+	_ = m.RunWithValue(dst, func(stmt *gorm.Statement) error {
+		o, n := oldName, newName
+		if stmt.Schema != nil {
+			if f := stmt.Schema.LookUpField(oldName); f != nil && f.DBName != "" {
+				o = f.DBName
+			}
+			if f := stmt.Schema.LookUpField(newName); f != nil && f.DBName != "" {
+				n = f.DBName
+			}
+		}
+		rerr = m.RenameField(stmt.Table, o, n)
+		return nil
+	})
+	return rerr
+}
+
 func (m Migrator) CreateTable(models ...interface{}) error {
 	for _, model := range models {
 		if err := m.RunWithValue(model, func(stmt *gorm.Statement) error {

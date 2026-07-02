@@ -5,6 +5,34 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-07-01
+
+### Added
+
+- **Real `*sql.Rows`** via a `database/sql/driver` layer (`sqldriver.go`): the
+  dialector opens an internal `*sql.DB` and `QueryContext`/`QueryRowContext`
+  delegate to it, so `db.Raw(sql).Rows()` and `sql.ScanRows` work. Columns are
+  derived from the first document's keys (scalars use a single `value` column).
+- **`RowCallback`** replacing the previous no-op `gorm:row`, yielding to the
+  edge association-count path for many2many.
+- **Migrator interface completeness** — native `HasColumn`, `HasIndex`, and
+  `RenameColumn` backed by `INFO FOR TABLE` instead of GORM's
+  information_schema defaults (which SurrealDB rejects).
+
+### Fixed
+
+- `RenameField` generated `ALTER TABLE ... RENAME FIELD`, which is not valid
+  SurrealQL. It now recreates the field definition under the new name, copies
+  the value, and removes the old field.
+
+### Known limitations (tracked for a future release)
+
+- No automatic WebSocket reconnection (the SDK's `contrib/rews` is not wired in).
+- The single shared connection serializes requests (correct and concurrency-safe
+  via the SDK's mutex + UUID-tagged transactions, but not a throughput pool).
+- Raw `.Rows()` inside `db.Transaction(...)` and `db.Model(&x).Rows()` (without
+  the SurrealQL rewrites) are not yet supported; `db.Raw(...).Rows()` is.
+
 ## [1.0.0] - 2026-07-01
 
 First stable release of the GORM v2 driver for SurrealDB.
@@ -62,4 +90,5 @@ First stable release of the GORM v2 driver for SurrealDB.
   to a local development instance.
 - Full suite: 105 passing, 1 intentional skip (raw `LIVE SELECT` via Scan).
 
+[1.1.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.0.0
