@@ -417,6 +417,35 @@ Starts SurrealDB at `ws://localhost:8000/rpc`.
 
 ---
 
+## Testing
+
+Tests are split into **unit** (no database) and **integration** (require a running SurrealDB):
+
+```bash
+# Unit tests — pure logic, no server needed
+go test . ./types/
+
+# Integration tests — need SurrealDB (see Docker above)
+SURREALDB_DSN="ws://localhost:8000/rpc?namespace=test&database=test&username=root&password=root" \
+  go test ./test/
+```
+
+Some integration tests are **gated** behind env vars because they need special setup:
+
+| Env var | Test | Requirement |
+|---|---|---|
+| `SURREALDB_RECONNECT_TEST=1` | `TestReconnectAfterDrop` | Restart/pause the server mid-run |
+| `SURREALDB_FILES_TEST=1` | `TestFileType` | Server started with `--allow-experimental files` |
+
+```bash
+# Example: file type tests against an experimental-files server
+podman run -d -p 8001:8000 surrealdb/surrealdb:nightly start --user root --pass root --allow-experimental files
+SURREALDB_FILES_TEST=1 SURREALDB_DSN="ws://localhost:8001/rpc?namespace=test&database=test&username=root&password=root" \
+  go test ./test/ -run TestFileType
+```
+
+---
+
 ## Architecture
 
 ```
