@@ -330,12 +330,22 @@ func (m Migrator) defineFields(stmt *gorm.Statement, isEdge bool, isNewTable boo
 			typeExpr = fmt.Sprintf("option<%s>", dataType)
 		}
 
-		parts := []string{
-			fmt.Sprintf("DEFINE FIELD %s `%s` ON `%s` TYPE %s", clause, dbName, tableName, typeExpr),
+		// FLEXIBLE (gorm:"flexible") allows arbitrary nested content on object
+		// fields; it must precede TYPE in the DEFINE FIELD statement.
+		flexible := ""
+		if _, ok := field.TagSettings["FLEXIBLE"]; ok {
+			flexible = "FLEXIBLE "
 		}
 
-		// ASSERT for NOT NULL fields.
-		if field.NotNull {
+		parts := []string{
+			fmt.Sprintf("DEFINE FIELD %s `%s` ON `%s` %sTYPE %s", clause, dbName, tableName, flexible, typeExpr),
+		}
+
+		// ASSERT: explicit gorm:"assert:<expr>" wins; otherwise NOT NULL fields
+		// get a non-empty assertion.
+		if assertExpr, ok := field.TagSettings["ASSERT"]; ok && assertExpr != "" {
+			parts = append(parts, "ASSERT "+assertExpr)
+		} else if field.NotNull {
 			parts = append(parts, "ASSERT $value != NONE AND $value != NULL")
 		}
 
@@ -357,6 +367,18 @@ func (m Migrator) defineFields(stmt *gorm.Statement, isEdge bool, isNewTable boo
 		if field.HasDefaultValue && field.DefaultValue != "" {
 			defaultVal := strings.ReplaceAll(field.DefaultValue, "'", "\\'")
 			parts = append(parts, fmt.Sprintf("DEFAULT '%s'", defaultVal))
+		}
+
+		// VALUE: a computed-field expression, e.g.
+		// gorm:"value:string::uppercase($value)". Raw SurrealQL.
+		if valueExpr, ok := field.TagSettings["VALUE"]; ok && valueExpr != "" {
+			parts = append(parts, "VALUE "+valueExpr)
+		}
+
+		// PERMISSIONS: field-level permissions, e.g. gorm:"permissions:FULL" or a
+		// custom clause. Raw SurrealQL.
+		if perms, ok := field.TagSettings["PERMISSIONS"]; ok && perms != "" {
+			parts = append(parts, "PERMISSIONS "+perms)
 		}
 
 		sql := strings.Join(parts, " ")
@@ -465,6 +487,13 @@ func (m Migrator) defineIndexes(stmt *gorm.Statement) error {
 				}
 			}
 			sql = fmt.Sprintf("DEFINE INDEX IF NOT EXISTS `%s` ON `%s` FIELDS %s SEARCH ANALYZER %s", idx.Name, tableName, fields, analyzer)
+		case "HNSW", "MTREE":
+			// Vector (ANN/kNN) index for embedding fields. Parameters are carried
+			// in the option string as `key=value` pairs separated by `;`, e.g.
+			//   gorm:"index:idx_emb,class:HNSW,option:dimension=768;dist=cosine;efc=150;m=12"
+			// DIMENSION is required by SurrealDB.
+			sql = fmt.Sprintf("DEFINE INDEX IF NOT EXISTS `%s` ON `%s` FIELDS %s %s%s",
+				idx.Name, tableName, fields, idx.Class, buildVectorIndexParams(idx.Option))
 		default:
 			sql = fmt.Sprintf("DEFINE INDEX IF NOT EXISTS `%s` ON `%s` FIELDS %s", idx.Name, tableName, fields)
 		}
@@ -475,6 +504,37 @@ func (m Migrator) defineIndexes(stmt *gorm.Statement) error {
 	}
 
 	return nil
+}
+
+// buildVectorIndexParams turns an index option string of space-separated
+// `key=value` pairs into the SurrealDB vector-index parameter clause, e.g.
+// "dimension=4 dist=euclidean efc=150 m=12" -> " DIMENSION 4 DIST EUCLIDEAN EFC 150 M 12".
+// Space separation is used because GORM reserves `;` (setting separator) and
+// `,` (index sub-setting separator). Keys are emitted in SurrealDB's expected
+// order; unknown keys are ignored.
+func buildVectorIndexParams(option string) string {
+	order := []struct{ key, keyword string }{
+		{"dimension", "DIMENSION"},
+		{"type", "TYPE"},
+		{"dist", "DIST"},
+		{"efc", "EFC"},
+		{"m", "M"},
+		{"capacity", "CAPACITY"},
+	}
+	vals := map[string]string{}
+	for _, part := range strings.Fields(option) {
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) == 2 {
+			vals[strings.ToLower(strings.TrimSpace(kv[0]))] = strings.TrimSpace(kv[1])
+		}
+	}
+	var b strings.Builder
+	for _, o := range order {
+		if v := vals[o.key]; v != "" {
+			b.WriteString(" " + o.keyword + " " + v)
+		}
+	}
+	return b.String()
 }
 
 // isPrimaryKeyIndex reports whether the index covers only the primary-key field(s).
