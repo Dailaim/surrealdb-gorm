@@ -53,6 +53,7 @@ converts every custom type to its SDK-native CBOR-tagged counterpart:
 | `types.GeometryMultiPolygon` | `*models.GeometryMultiPolygon` | Yes |
 | `types.GeometryCollection` | `*models.GeometryCollection` | Yes |
 | `[]byte` (Bytes) | `models.Bytes` | No (value) |
+| `types.File` | *(none — emits CBOR tag 55 `[bucket, key]` directly)* | value receiver `MarshalCBOR` |
 
 ### RecordID Parsing
 
@@ -282,12 +283,15 @@ m.SetTableSchemaFull("users")
 ## Testing Conventions
 
 - All tests live in `test/` package (external test package)
-- DSN points to `ws://10.89.1.1:8000/rpc` (local SurrealDB instance)
+- DSN comes from `SURREALDB_DSN` (env), falling back to `ws://localhost:8000/rpc`
 - Credentials: `root` / `root`, namespace `test`, database `test`
 - `setupDB(t)` creates a fresh GORM connection and AutoMigrates `User`
 - Tests should clean up tables they create to avoid cross-test pollution
-- Some driver features (LIVE SELECT raw, SHOW CHANGES Scan) are skipped in
-tests because the Go SDK does not return standard `sql.Rows` for them
+- `db.Raw(...).Rows()` returns real `*sql.Rows` (via `sqldriver.go`); raw
+  `LIVE SELECT` scan is still skipped (`TestLiveQueryViaRaw`)
+- Gated tests (skipped by default): `TestReconnectAfterDrop`
+  (`SURREALDB_RECONNECT_TEST`, restart/pause the server mid-run) and
+  `TestFileType` (`SURREALDB_FILES_TEST`, needs `--allow-experimental files`)
 
 ### Known Test Workarounds
 
@@ -301,20 +305,27 @@ tests because the Go SDK does not return standard `sql.Rows` for them
 
 | File | Purpose |
 |------|---------|
-| `surrealdb.go` | Dialector registration, `Open()`, `Relate()` wrapper |
-| `dialector.go` | `Dialector` struct, `DataTypeOf`, `ExplainQuery`, `Migrator()` |
-| `driver.go` | `Conn`, `Stmt`, `Tx` implementations, parameter serialization |
-| `executor.go` | Query execution, `ToSDKValue` integration |
+| `surrealdb.go` | Dialector registration, `Open()`, `New(Config)`, `Relate()` |
+| `connection.go` | `dialConn` — auto-reconnecting WebSocket (rews) |
+| `dialector.go` | `Dialector` struct, `Initialize` (v3 ns/db create), `DataTypeOf`, `ExplainQuery`, `Migrator()` |
+| `driver.go` | `Conn`/`Result`, `ExecContext`, `BeginTx`, `rewriteExecSQL`, `extractRecordID` |
+| `errors.go` | Typed `*surrealdb.Error` (`errors.As`) |
+| `executor.go` | Query execution, tx routing (`execTxQuery`/`txFromStatement`), logger tracing, `ToSDKValue` |
+| `sqldriver.go` | `database/sql/driver` layer → real `*sql.Rows` for `db.Raw().Rows()` |
 | `batch.go` | `CreateMany()` for native SurrealDB batch INSERT |
 | `callback_create.go` | GORM CREATE callback with CBOR serialization |
-| `callback_delete.go` | GORM DELETE callback |
+| `callback_delete.go` | GORM DELETE callback (conditional WHERE for global deletes) |
 | `callback_update.go` | GORM UPDATE callback |
-| `migrator.go` | `AutoMigrate`, `defineFields`, `defineIndexes`, `removeObsoleteFields` |
-| `alter.go` | `AlterTable`, `AlterField`, `DropField`, `RenameField`, `RenameTableTo` |
+| `callback_query.go` / `callback_raw.go` / `callback_row.go` | SELECT / raw / Row(s) callbacks |
+| `callback_preload.go` / `callback_edge.go` | Preload-as-FETCH, edge association callbacks |
+| `migrator.go` | `AutoMigrate`, `defineFields` (incl. VALUE/FLEXIBLE/PERMISSIONS), `defineIndexes` (incl. HNSW/MTREE vector), `HasColumn`/`HasIndex`/`RenameColumn` |
+| `define.go` | `DefineParam`/`Function`/`Sequence`/`User` + generic `Define`/`Remove` |
+| `alter.go` | `AlterTable`, `AlterField`, `DropField`, `RenameField` (recreate+copy), `RenameTableTo`, changefeed |
 | `analyzer.go` | `DefineAnalyzer`, pre-built analyzer helpers |
 | `event.go` | `DefineEvent`, `RemoveEvent`, convenience helpers |
 | `live.go` | `LiveSelect`, `LiveNotifications`, `KillLiveQuery` |
 | `types/types.go` | Geometry, Duration, Bytes, Regex, DateTime, Decimal, UUID, RecordID |
+| `types/file.go` | `File` (v3 file pointer, CBOR tag 55) |
 | `types/sdk.go` | `ToSDKValue()` mapping custom types → SDK CBOR types |
 | `types/link.go` | `Link[T]` with `GormDataType()` inferring `record<T>` |
 | `types/slice-link.go` | `SliceLink[T]` with array inference |
@@ -374,4 +385,4 @@ err := surrealdb.CreateMany(db, &users)
 
 ---
 
-Last updated: 2026-07-01
+Last updated: 2026-07-02
