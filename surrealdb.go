@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"time"
 
 	"github.com/surrealdb/surrealdb.go"
 	sdkModels "github.com/surrealdb/surrealdb.go/pkg/models"
@@ -27,6 +28,10 @@ type Config struct {
 	// Username and Password are the signin credentials.
 	Username string
 	Password string
+	// ReconnectInterval tunes the auto-reconnecting WebSocket connection: 0 uses
+	// the default (5s), a positive value sets the reconnect check interval, and a
+	// negative value disables reconnection.
+	ReconnectInterval time.Duration
 }
 
 // New returns a GORM dialector from an explicit Config. Prefer this over Open
@@ -40,7 +45,7 @@ type Config struct {
 //	    Password:  "root",
 //	}), &gorm.Config{})
 func New(cfg Config) gorm.Dialector {
-	return &Dialector{DSN: cfg.dsn()}
+	return &Dialector{DSN: cfg.dsn(), ReconnectInterval: cfg.ReconnectInterval}
 }
 
 // dsn assembles the DSN string that Dialector.Initialize expects, URL-encoding

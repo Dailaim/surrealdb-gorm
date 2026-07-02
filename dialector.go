@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	TypesM "github.com/dailaim/surrealdb-gorm/types"
 	"github.com/surrealdb/surrealdb.go"
@@ -21,10 +22,14 @@ import (
 // Dialector implements GORM's dialector interface for SurrealDB.
 type Dialector struct {
 	gorm.Dialector
-	DSN        string
-	Conn       *surrealdb.DB
-	sqlDB      *sql.DB  // backs QueryContext/QueryRowContext with real *sql.Rows
-	edgeTables sync.Map // map[string]string — canonical edge table names; key = any alias, value = canonical name
+	DSN  string
+	Conn *surrealdb.DB
+	// ReconnectInterval controls the auto-reconnecting WebSocket connection:
+	// 0 uses the default (5s), a positive value tunes the check interval, and a
+	// negative value disables reconnection (plain connection).
+	ReconnectInterval time.Duration
+	sqlDB             *sql.DB  // backs QueryContext/QueryRowContext with real *sql.Rows
+	edgeTables        sync.Map // map[string]string — canonical edge table names; key = any alias, value = canonical name
 }
 
 // RegisterEdgeTable marks a table name as a SurrealDB graph edge table.
@@ -74,7 +79,7 @@ func (dialector *Dialector) Initialize(db *gorm.DB) (err error) {
 			return err
 		}
 
-		conn, err := surrealdb.FromEndpointURLString(context.Background(), dialector.DSN)
+		conn, err := dialector.dialConn(context.Background())
 		if err != nil {
 			return err
 		}

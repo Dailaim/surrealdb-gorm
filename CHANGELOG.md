@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-07-01
+
+### Added
+
+- **Auto-reconnecting WebSocket connection** via the SDK's reliable-websocket
+  (`rews`) wrapper. On connection loss the driver transparently reconnects and
+  replays the recorded SignIn token and `USE` namespace/database, so callers keep
+  working across transient drops. Configurable via `Dialector.ReconnectInterval`
+  and `Config.ReconnectInterval` (0 = default 5s, negative = disabled).
+- `TestReconnectAfterDrop` (gated by `SURREALDB_RECONNECT_TEST`) verifies
+  recovery after a transient outage; validated by pausing/resuming the server
+  mid-run (queries fail while down, then recover with data intact).
+
+### Notes
+
+- Reconnection recovers **transient** drops where the server stays up and the
+  session token remains valid. A full server restart that wipes state (e.g. an
+  in-memory instance) or regenerates signing keys is not recoverable — the token
+  re-auth fails and the data is gone regardless.
+- Still single-connection (no pool). The SDK serializes requests over one
+  mutex-protected socket and tags interactive transactions by UUID, so this is
+  correct and concurrency-safe, just not a throughput pool. A pool remains future
+  work.
+
 ## [1.1.0] - 2026-07-01
 
 ### Added
@@ -90,5 +114,6 @@ First stable release of the GORM v2 driver for SurrealDB.
   to a local development instance.
 - Full suite: 105 passing, 1 intentional skip (raw `LIVE SELECT` via Scan).
 
+[1.2.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.0.0
