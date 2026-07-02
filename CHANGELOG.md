@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-07-02
+
+### Fixed
+
+- **Multi-ID `Find` returned nothing.** `db.Find(&xs, []ids)` generated
+  `WHERE id IN ($p1, $p2)`, but SurrealQL's `(a, b)` is not array membership, so
+  it silently matched zero rows. It is now rewritten to direct record access
+  `SELECT ... FROM $p1, $p2`, which is both correct and follows SurrealDB's
+  performance guidance (querying records by direct access instead of a scan).
+
+### Added
+
+- `optimizeFindByIDList` (query callback) — the multi-record counterpart to the
+  existing single-record `optimizeFindByID`. Unit-tested without a database.
+
+### Notes
+
+- Performance best practices: the driver now applies both direct-record-access
+  recommendations (single id via `optimizeFindByID`, id lists via
+  `optimizeFindByIDList`) and enables the indexing ones through struct tags.
+  Upsert-by-id already works (create-with-id routes through UPDATE); native
+  `UPSERT`-by-unique-column and a `RETURN NONE` write fast-path remain future
+  work.
+
 ## [1.4.0] - 2026-07-02
 
 ### Added
@@ -156,6 +180,7 @@ First stable release of the GORM v2 driver for SurrealDB.
   to a local development instance.
 - Full suite: 105 passing, 1 intentional skip (raw `LIVE SELECT` via Scan).
 
+[1.5.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.5.0
 [1.4.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.4.0
 [1.3.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.3.0
 [1.2.0]: https://github.com/Dailaim/surrealdb-gorm/releases/tag/v1.2.0
